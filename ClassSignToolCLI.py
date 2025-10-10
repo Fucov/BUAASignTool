@@ -5,8 +5,7 @@ import datetime
 import sys
 import os
 
-student_id = '21376218'  # 请填写你的学号
-password = ''  # 请填写你的密码
+student_id = ''  # 请填写你的学号
 
 
 # 颜色代码
@@ -80,8 +79,7 @@ def login():
 
     url = 'https://iclass.buaa.edu.cn:8346/app/user/login.action'
     para = {
-        'password': password,
-        'phone': student_id,
+        'phone': input(f"{Colors.BLUE}请输入学号: {Colors.END}"),
         'userLevel': '1',
         'verificationType': '2',
         'verificationUrl': ''
