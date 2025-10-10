@@ -41,7 +41,7 @@
 
   * **运行应用**:
     ```bash
-    python ClassSignToolWindows.py
+    python ClassSignToolGUI.py
     ```
   * **操作流程**:
     1.  在 "学号" 输入框中填入您的学号。
