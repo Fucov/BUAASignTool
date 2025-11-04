@@ -231,8 +231,8 @@ class CourseSignApp:
 
     def validate_input(self):
         student_id = self.student_id_var.get().strip()
-        if not student_id or not student_id.isdigit(): messagebox.showerror("输入错误",
-                                                                            "请输入有效的数字学号"); return False
+        if not student_id : messagebox.showerror("输入错误",
+                                                                                "请输入有效的数字学号"); return False
         try:
             datetime.datetime(int(self.year_var.get()), int(self.month_var.get()), int(self.day_var.get()))
         except ValueError:
