@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>北航课程打卡系统</title>
+    <link rel="stylesheet" href="style.css">
+    <!-- 使用系统字体，无需远程加载 -->
+</head>
+
+<body>
+    <div class="layout">
+        <!-- 左侧控制栏 -->
+        <aside class="sidebar">
+            <header class="sidebar-header">
+                <h1 class="logo">打卡</h1>
+                <span class="logo-sub">BUAA · iClass</span>
+            </header>
+
+            <div class="sidebar-content">
+                <!-- 登录区 -->
+                <section class="panel" id="loginPanel">
+                    <label class="field-label">学号</label>
+                    <input type="text" id="studentId" class="input" placeholder="请输入学号" autocomplete="off">
+
+                    <label class="field-label" style="margin-top: 16px;">学期起始日</label>
+                    <div class="date-row">
+                        <input type="number" id="yearInput" class="input input-sm" value="2026" min="2020" max="2030">
+                        <span class="date-sep">-</span>
+                        <input type="number" id="monthInput" class="input input-sm" value="3" min="1" max="12">
+                        <span class="date-sep">-</span>
+                        <input type="number" id="dayInput" class="input input-sm" value="2" min="1" max="31">
+                    </div>
+
+                    <button class="btn btn-primary" id="loginBtn" onclick="app.login()">
+                        登录
+                    </button>
+
+                    <!-- 退出登录按钮（登录后显示） -->
+                    <button class="btn btn-ghost" id="logoutBtn" onclick="app.logout()"
+                        style="display:none; margin-top:8px;">
+                        退出登录
+                    </button>
+
+                    <div id="loginStatus" class="status-text"></div>
+                </section>
+
+                <!-- 周数导航 -->
+                <section class="panel" id="weekPanel" style="display:none;">
+                    <label class="field-label">周数</label>
+                    <div class="week-nav">
+                        <button class="btn-icon" onclick="app.prevWeek()">‹</button>
+                        <span class="week-display" id="weekDisplay">第 1 周</span>
+                        <button class="btn-icon" onclick="app.nextWeek()">›</button>
+                    </div>
+                    <div class="action-row">
+                        <button class="btn btn-ghost" onclick="app.jumpToCurrentWeek()">本周</button>
+                        <button class="btn btn-ghost" onclick="app.loadWeek()">刷新</button>
+                    </div>
+                    <button class="btn btn-accent" onclick="app.batchSign()">
+                        一键打卡
+                    </button>
+                </section>
+
+                <!-- 统计 -->
+                <section class="panel stats-panel" id="statsPanel" style="display:none;">
+                    <div class="stat-item">
+                        <span class="stat-value" id="totalCourses">0</span>
+                        <span class="stat-label">本周课程</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-value" id="signedCourses">0</span>
+                        <span class="stat-label">已签到</span>
+                    </div>
+                </section>
+            </div>
+
+            <!-- 日志入口 -->
+            <div class="sidebar-footer">
+                <button class="btn-text" onclick="app.toggleLog()">操作日志 ↑</button>
+            </div>
+        </aside>
+
+        <!-- 右侧主区域 -->
+        <main class="content">
+            <!-- 加载状态 -->
+            <div class="loading-overlay" id="loadingOverlay" style="display:none;">
+                <div class="loading-spinner"></div>
+                <p class="loading-text">加载中…</p>
+            </div>
+
+            <!-- 欢迎页 -->
+            <div class="welcome" id="welcomeView">
+                <div class="welcome-inner">
+                    <h2>北航课程打卡系统</h2>
+                    <p>输入学号登录后查看课表</p>
+                </div>
+            </div>
+
+            <!-- 课表网格 -->
+            <div class="schedule" id="scheduleView" style="display:none;">
+                <div class="schedule-grid" id="scheduleGrid"></div>
+            </div>
+
+            <!-- 操作日志（底部抽屉，在主区域内） -->
+            <div class="log-drawer" id="logDrawer">
+                <div class="log-header">
+                    <span>操作日志</span>
+                    <button class="btn-icon btn-icon-sm" onclick="app.toggleLog()">×</button>
+                </div>
+                <div class="log-body" id="logBody"></div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Toast -->
+    <div class="toast-container" id="toastContainer"></div>
+
+    <script src="app.js"></script>
+</body>
+
+</html>
