@@ -1,4 +1,6 @@
 import tkinter as tk
+from concurrent.futures import ThreadPoolExecutor
+
 import ttkbootstrap as ttk
 from ttkbootstrap.constants import *
 from ttkbootstrap.tooltip import ToolTip
@@ -20,57 +22,67 @@ def truncate_text(text, max_length):
 
 # --- 课程卡片UI组件 (最终设计) ---
 class CourseCard(ttk.Labelframe):
-    """
-    最终版课程卡片：
-    - 修复了重复图标的BUG。
-    - 课程标题居中，详细信息左对齐，排版更专业。
-    - ToolTip功能完全可用。
-    """
-
     def __init__(self, parent, course_data, sign_command, **kwargs):
-        course_name = course_data.get('courseName', '未知课程')
-        truncated_name = truncate_text(course_name, 15)
+        # 数据提取
+        name = course_data.get('courseName', '未知课程')
+        loc = course_data.get('classroomName', '未知')
+        teacher = course_data.get('teacherName', '未知')
+        course_type = course_data.get('courseType', '必修')
+        sign_status = str(course_data.get('signStatus', '0'))  # '1' 通常表示已签到或可签到
 
-        # 使用 ttk.Labelframe 实现类似圆角和带标题的边框效果
-        super().__init__(parent, text=f" {truncated_name} ", bootstyle="primary", padding=15, **kwargs)
+        # 时间处理
+        begin = course_data['classBeginTime'][11:16]
+        end = course_data['classEndTime'][11:16]
 
-        # 为卡片标题添加悬浮提示
-        if course_name != truncated_name:
-            ToolTip(self, text=course_name, bootstyle="light-inverse", delay=500)
+        # 状态逻辑：根据课程类型和时间改变边框颜色
+        # 必修课用 primary，选修课用 info
+        color_theme = "primary" if "必修" in course_type else "info"
 
-        location = course_data.get('classroomName', '未知地点')
-        teacher = course_data.get('teacherName', '未知教师')
-        class_begin = course_data['classBeginTime'][11:16]
-        class_end = course_data['classEndTime'][11:16]
-        truncated_loc = truncate_text(location, 14)
-        truncated_teacher = truncate_text(teacher, 10)
+        super().__init__(
+            parent,
+            text=f" {truncate_text(name, 12)} ",
+            bootstyle=color_theme,
+            padding=12
+        )
 
-        # --- 内部细节布局 ---
-        # 详细信息左对齐，更易阅读
-        details_frame = ttk.Frame(self)
-        details_frame.pack(fill=X, pady=(5, 0))
-        details_frame.columnconfigure(1, weight=1)
+        # --- 顶部：时间与类型标签 ---
+        top_frame = ttk.Frame(self)
+        top_frame.pack(fill=X)
 
-        # 时间 (一行搞定，避免重复图标)
-        time_label = ttk.Label(details_frame, text=f"🕒 {class_begin} - {class_end}", font=("微软雅黑", 10))
-        time_label.grid(row=0, column=0, columnspan=2, sticky='w')
+        ttk.Label(top_frame, text=f"🕒 {begin}-{end}", font=("Segoe UI", 9, "bold")).pack(side=LEFT)
 
-        # 地点
-        loc_label = ttk.Label(details_frame, text=f"📍 {truncated_loc}", font=("微软雅黑", 10))
-        loc_label.grid(row=1, column=0, columnspan=2, sticky='w', pady=(8, 0))
-        if location != truncated_loc:
-            ToolTip(loc_label, text=location, bootstyle="light-inverse", delay=500)
+        # 课程类型小标签
+        type_label = ttk.Label(
+            top_frame, text=course_type,
+            font=("微软雅黑", 7),
+            bootstyle=f"{color_theme}-inverse",
+            padding=(4, 0)
+        )
+        type_label.pack(side=RIGHT)
 
-        # 教师 (修复了重复图标的问题)
-        teacher_label = ttk.Label(details_frame, text=f"👨‍ {truncated_teacher}", font=("微软雅黑", 10))
-        teacher_label.grid(row=2, column=0, columnspan=2, sticky='w', pady=(8, 0))
-        if teacher != truncated_teacher:
-            ToolTip(teacher_label, text=teacher, bootstyle="light-inverse", delay=500)
+        ttk.Separator(self, orient=HORIZONTAL).pack(fill=X, pady=8)
 
-        # 打卡按钮
-        sign_btn = ttk.Button(self, text="✅ 课程打卡", bootstyle="outline-success", command=sign_command)
-        sign_btn.pack(fill=X, pady=(20, 0))
+        # --- 中部：地点与教师 ---
+        # 使用更紧凑的水平布局
+        info_frame = ttk.Frame(self)
+        info_frame.pack(fill=X)
 
+        ttk.Label(info_frame, text=f"📍 {loc}", font=("微软雅黑", 9)).pack(anchor=W)
+        ttk.Label(info_frame, text=f"👤 {teacher}", font=("微软雅黑", 9), foreground="#666").pack(anchor=W, pady=(2, 0))
+
+        # --- 底部：动作按钮 ---
+        # 如果 signStatus 为 '1'，可以显示为“已完成”样式
+        btn_style = "success" if sign_status == "1" else f"{color_theme}-outline"
+        btn_text = "✅ 已签到" if sign_status == "1" else "⚡ 立即打卡"
+
+        self.btn = ttk.Button(
+            self,
+            text=btn_text,
+            bootstyle=btn_style,
+            command=sign_command,
+            cursor="hand2"
+        )
+        self.btn.pack(fill=X, pady=(12, 0))
 
 # --- 主程序类 ---
 class CourseSignApp:
@@ -231,12 +243,13 @@ class CourseSignApp:
 
     def validate_input(self):
         student_id = self.student_id_var.get().strip()
-        if not student_id : messagebox.showerror("输入错误",
-                                                                                "请输入有效的数字学号"); return False
+        if not student_id: messagebox.showerror("输入错误",
+                                                "请输入有效的数字学号"); return False
         try:
             datetime.datetime(int(self.year_var.get()), int(self.month_var.get()), int(self.day_var.get()))
         except ValueError:
-            messagebox.showerror("输入错误", "请输入有效的学期开始日期"); return False
+            messagebox.showerror("输入错误", "请输入有效的学期开始日期");
+            return False
         return True
 
     def get_semester_start_date(self):
@@ -307,16 +320,38 @@ class CourseSignApp:
         try:
             week_number = int(self.week_var.get().split()[1])
             week_dates = self.calculate_week_dates(week_number)
-            self.status_var.set(f"🔄 正在加载第 {week_number} 周课表...");
+            self.status_var.set(f"🔄 正在并发加载第 {week_number} 周课表...")
             self.log_message(f"开始加载第 {week_number} 周课表", "info")
+
             self.root.after(0, self._clear_course_display)
             self.root.after(0, lambda: self._update_week_headers(week_dates))
-            for day_idx, date in enumerate(week_dates): self.fetch_day_courses(day_idx, date.strftime('%Y%m%d'))
-            self.status_var.set(f"✅ 第 {week_number} 周课表加载完成");
+
+            # 使用线程池并发抓取 7 天的数据
+            results = [None] * 7  # 预分配位置，保证顺序
+            with ThreadPoolExecutor(max_workers=7) as executor:
+                # 提交 7 个任务
+                future_to_day = {
+                    executor.submit(self.get_course_schedule, date.strftime('%Y%m%d')): i
+                    for i, date in enumerate(week_dates)
+                }
+
+                for future in future_to_day:
+                    day_idx = future_to_day[future]
+                    try:
+                        data = future.result()
+                        courses = data.get('result', []) if data and data.get('STATUS') == '0' else []
+                        # 抓取完一天，立即在 UI 上显示该天的内容
+                        self.root.after(0, lambda d=day_idx, c=courses: self.display_day_courses(d, c))
+                    except Exception as e:
+                        self.log_message(f"获取第 {day_idx + 1} 天课程失败: {e}", "error")
+
+            self.status_var.set(f"✅ 第 {week_number} 周课表加载完成")
             self.log_message(f"第 {week_number} 周课表加载完成", "success")
-            self.root.after(100, lambda: self.course_canvas.configure(scrollregion=self.course_canvas.bbox("all")))
+            # 延迟更新滚动区域
+            self.root.after(500, lambda: self.course_canvas.configure(scrollregion=self.course_canvas.bbox("all")))
+
         except Exception as e:
-            self.log_message(f"加载课表时发生错误: {e}", "error");
+            self.log_message(f"加载课表时发生错误: {e}", "error")
             self.status_var.set("❌ 课表加载失败")
 
     def _clear_course_display(self):
@@ -348,6 +383,7 @@ class CourseSignApp:
             url, params, headers = f'https://iclass.buaa.edu.cn:8346/app/course/get_stu_course_sched.action', {
                 'dateStr': dateStr, 'id': self.userId}, {'sessionId': self.sessionId}
             res = requests.get(url, params=params, headers=headers, timeout=10)
+            # print("=" * 30, res.json())
             return res.json() if res.status_code == 200 else None
         except requests.exceptions.RequestException as e:
             self.log_message(f"网络请求失败: {e}", "error");
@@ -400,7 +436,8 @@ class CourseSignApp:
             for i, course in enumerate(all_courses):
                 self.status_var.set(f"🔄 ({i + 1}/{total}): {truncate_text(course['courseName'], 20)}")
                 if self.sign_course_request(course['id']):
-                    self.log_message(f"打卡成功: {course['courseName']}", "success"); success += 1
+                    self.log_message(f"打卡成功: {course['courseName']}", "success");
+                    success += 1
                 else:
                     self.log_message(f"打卡失败: {course['courseName']} (可能已打卡)", "warning")
                 time.sleep(0.2)
