@@ -1,0 +1,13 @@
+# PyInstaller
+build/
+dist/
+*.exe
+*.bin
+*.pyc
+
+# IDE
+.idea/
+.vscode/
+
+# Python cache
+__pycache__/

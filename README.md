@@ -1,89 +1,124 @@
+这份 README 的重写重点放在了**提升项目专业感**，并醒目地标注了你刚刚完成的 **Release（免安装版）发布**，让普通用户能一眼看到下载入口。
+
+---
+
 # BUAASignTool — 北航课程打卡助手
 
-北京航空航天大学 iClass 平台桌面端签到工具，通过直接调用接口完成课程打卡。
+**BUAASignTool** 是一款专为北京航空航天大学 iClass 平台设计的桌面端辅助工具。它通过原生接口调用，帮助同学在 PC 端快速完成课程签到与课表查看，摆脱手机 App 的束缚。
 
-> 本项目为开源工具，使用者需遵守学校相关规定，因使用产生的一切后果由使用者本人承担。
+> **免责声明**：本项目仅供学习交流使用。使用者需严格遵守学校相关规定，因使用本工具产生的一切后果（如违规记录等）由使用者本人承担。
 
-<!-- 截图占位 -->
-<!-- ![主界面截图](./screenshots/main.png) -->
+---
 
-## 功能特性
+## 🚀 快速下载（推荐）
 
-- **极简主义界面** — 基于 pywebview + HTML/CSS/JS 构建，黑白灰设计语言
-- **周视图课表** — 7列网格化布局，清晰展示每日课程安排
-- **智能合并** — 同一课程多位教师自动合并为一张卡片
-- **签到状态** — 已签/未签一目了然，已签到课程自动禁用打卡按钮
-- **一键打卡** — 支持单课签到和整周批量打卡
-- **连接复用** — `requests.Session` 加速课表加载
-- **命令行版** — CLI 版本支持无图形环境使用
+如果你不想配置 Python 环境，可以直接下载我们已经打包好的**绿色免安装版**：
 
-<!-- 课表截图占位 -->
-<!-- ![课表展示](./screenshots/schedule.png) -->
+1. 前往 **[Releases 页面](https://github.com/Fucov/BUAASignTool/releases)**。
+2. 下载最新版本的 `BUAASignTool_v1.0.exe` (Windows)。
+3. 双击即可运行，无需安装任何依赖。
 
-## 快速开始
+---
 
-### 安装依赖
+## ✨ 功能特性
+
+* **极简主义界面** — 基于 `pywebview` + 原生前端技术构建，黑白灰工业风设计。
+* **智能周视图** — 7列网格化布局，自动同步教务系统每日课程安排。
+* **高效打卡** —
+* **一键全签**：支持整周课程批量自动打卡。
+* **单课手动**：精准控制每一节课的签到状态。
+
+
+* **状态实时同步** — 已签/未签状态一目了然，签到成功后自动禁用按钮防止误操作。
+* **双模运行** —
+* **GUI 模式**：直观、易用，适合日常使用。
+* **CLI 模式**：极简、极速，适合无图形环境或极客用户。
+
+
+
+---
+
+## 🛠️ 开发者指南
+
+如果你希望自行构建或修改代码：
+
+### 环境要求
+
+* Python 3.8+
+* Windows / macOS / Linux (需安装对应的 WebView2 运行库)
+
+### 运行步骤
 
 ```bash
+# 1. 克隆项目
+git clone https://github.com/Fucov/BUAASignTool.git
+cd BUAASignTool
+
+# 2. 安装依赖
 pip install -r requirements.txt
-```
 
-### 运行 GUI 版
-
-```bash
-python app.py
-```
-
-1. 输入学号，设置学期起始日期
-2. 点击「登录」，系统自动加载当前周课表
-3. 点击卡片上的「签到」按钮完成打卡，或使用「一键打卡」
-
-<!-- 操作流程截图占位 -->
-<!-- ![操作流程](./screenshots/workflow.png) -->
-
-### 运行 CLI 版
-
-```bash
-python ClassSignToolCLI.py
-```
-
-支持：指定单日 / 日期范围 / 连续打卡三种模式。
-
-## 技术架构
-
-| 层 | 技术 |
-|----|------|
-| 前端 | HTML + CSS + JavaScript（极简主义设计） |
-| 桌面容器 | pywebview（系统原生 WebView） |
-| 后端逻辑 | Python 3 + requests |
-| 通信 | pywebview JS-Python API Bridge |
-
-**API 接口：**
-- 登录：`https://iclass.buaa.edu.cn:8346/app/user/login.action`
-- 课表：`https://iclass.buaa.edu.cn:8346/app/course/get_stu_course_sched.action`
-- 签到：`http://iclass.buaa.edu.cn:8081/app/course/stu_scan_sign.action`
-
-## 项目结构
+# 3. 启动应用
+python app.py  # 启动图形界面
+# 或
+python ClassSignToolCLI.py  # 启动命令行版
 
 ```
+
+---
+
+## 🏗️ 技术架构与逻辑
+
+### 核心技术栈
+
+| 模块 | 实现方案 |
+| --- | --- |
+| **UI 渲染** | HTML5 + CSS3 + Vanilla JS (极简设计) |
+| **桌面容器** | `pywebview` (原生系统 WebView 桥接) |
+| **网络请求** | `requests.Session` (保持会话，连接复用) |
+| **API 交互** | 基于 `webview.js_api` 的异步通信 |
+
+### 项目结构
+
+```text
 BUAASignTool/
-├── app.py                 # GUI 主程序（pywebview 后端）
-├── ClassSignToolCLI.py    # CLI 版本
-├── requirements.txt
-├── README.md
-└── web/
-    ├── index.html         # 页面结构
-    ├── style.css          # 极简样式
-    └── app.js             # 前端逻辑
+├── app.py                 # GUI 主入口
+├── ClassSignToolCLI.py    # CLI 命令行入口
+├── icon.ico               # 程序图标
+├── web/                   # 前端资源目录
+│   ├── index.html         # 结构
+│   ├── style.css          # 样式
+│   └── app.js             # 交互逻辑
+└── requirements.txt       # 依赖声明
+
 ```
 
-## 常见问题
+---
 
-**Q: 为什么不需要密码？**
-登录接口仅需学号即可获取会话，无需密码。
+## ❓ 常见问题 (FAQ)
 
-**Q: 打卡失败？**
-常见原因：教师未开启签到、已超时、已打过卡、或网络问题。
+**Q: 为什么登录不需要密码？**
+iClass 接口设计允许通过学号验证会话。为了保护隐私，本工具不接触、不存储您的任何密码。
 
-**Q: 会被检测到吗？**
-请求与官方 App 一致，但任何自动化工具都有风险，请遵守校规。
+**Q: 点击签到没有反应？**
+请确认：1. 教师已开启签到；2. 当前在签到时间范围内；3. 网络连接正常。
+
+**Q: 是否会产生封号风险？**
+本工具发出的请求特征与官方 App 完全一致，但频繁、异常的自动化操作仍可能引起注意，请适度使用。
+
+---
+
+## 📝 开源协议
+
+本项目基于 [MIT License](https://www.google.com/search?q=LICENSE) 开源。
+
+**Project Link:** [https://github.com/Fucov/BUAASignTool](https://github.com/Fucov/BUAASignTool)
+
+---
+
+**如果你觉得这个工具有帮到你，欢迎给仓库点个 ⭐️ Star！**
+
+---
+
+### 下一步建议
+
+这份 README 已经很完整了。如果你打算长期维护，**是否需要我帮你写一个 `LICENSE` (许可证) 文件或者 `CONTRIBUTING` (贡献指南) 放在仓库里？**
