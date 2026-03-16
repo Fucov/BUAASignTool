@@ -1,41 +1,199 @@
 /**
- * 北航课程打卡系统 — 前端逻辑
+ * 北航课程助手 — 前端交互枢纽 / i18n
  */
+
+const DICT = {
+    'zh': {
+        logoSub: '极简 · 高效',
+        segDirect: '校园直连',
+        segVpn: '校外穿透 (WebVPN)',
+        lblUid: '学号',
+        phUid: '输入学号',
+        lblVpnTitle: '网络凭证 (cURL)',
+        phCurl: '在此粘贴 cURL 指令...',
+        lblSemester: '学期第一周 (年-月-日)',
+        btnLoginDirect: '登 录',
+        btnLoginVpn: '解析并登录',
+        btnLogout: '退出登录',
+        lblTimeCtrl: '时间控制',
+        btnReset: '本周',
+        btnReload: '刷新',
+        btnBatch: '一键打卡',
+        lblStatBlocks: '排课数',
+        lblStatDone: '已签到',
+        lblWelcomeTitle: 'BUAA 课程助手',
+        lblWelcomeSub: '等待身份校验',
+        tooltip: '在校外需进行凭证同步：\n1. 登录 d.buaa.edu.cn\n2. F12 打开网络 (Network) 标签\n3. 右键刷新后的请求 ➔ Copy ➔ Copy as cURL\n4. 粘贴至下方输入框',
+        weekPrefix: '第 ',
+        weekSuffix: ' 周',
+        wkDays: ['周一', '周二', '周三', '周四', '周五', '周六', '周日'],
+        emptyDay: '今日无课',
+        cardSign: '签到',
+        cardDone: '已完成',
+        cardBadgePending: '未签',
+        cardBadgeDone: '已签',
+        
+        statBlocks: (total, done) => `${total} 节课 / 已签 ${done}`,
+        // Log parts
+        msgSysReady: '系统环境就绪。',
+        msgLoginIssue: '正在申请鉴权...',
+        msgLoginOk: '认证通过。',
+        msgLogingOut: '注销指令已提交。',
+        msgLoadFail: '数据解析遇阻:',
+        msgBatchLaunch: '触发批量签到序列...',
+        msgSignLaunch: '尝试签到区块:',
+    },
+    'en': {
+        logoSub: 'Minimalism · Utility',
+        segDirect: 'Direct Connection',
+        segVpn: 'WebVPN Tunnel',
+        lblUid: 'Student ID',
+        phUid: 'Enter ID',
+        lblVpnTitle: 'Auth Token (cURL)',
+        phCurl: 'Paste cURL here...',
+        lblSemester: 'Semester Pivot (Y-M-D)',
+        btnLoginDirect: 'Sign In',
+        btnLoginVpn: 'Parse & Connect',
+        btnLogout: 'Sign Out',
+        lblTimeCtrl: 'Time Frame',
+        btnReset: 'Current',
+        btnReload: 'Refresh',
+        btnBatch: 'Execute All',
+        lblStatBlocks: 'Blocks',
+        lblStatDone: 'Verified',
+        lblWelcomeTitle: 'Minimalism Sign.',
+        lblWelcomeSub: 'Awaiting Authentication',
+        tooltip: 'WebVPN tunneling requires Cookie syncing:\n1. Login via d.buaa.edu.cn\n2. Open DevTools (F12) -> Network\n3. Right-click any request -> Copy as cURL\n4. Paste payload here',
+        weekPrefix: 'Week ',
+        weekSuffix: '',
+        wkDays: ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'],
+        emptyDay: 'Null Reference',
+        cardSign: 'EXECUTE',
+        cardDone: 'VERIFIED',
+        cardBadgePending: 'PENDING',
+        cardBadgeDone: 'SIGNED',
+
+        statBlocks: (total, done) => `${total} BLK / ${done} DONE`,
+        msgSysReady: 'System Operational.',
+        msgLoginIssue: 'Allocating Session...',
+        msgLoginOk: 'Authentication Granted.',
+        msgLogingOut: 'Session Terminated.',
+        msgLoadFail: 'Operation Aborted:',
+        msgBatchLaunch: 'Executing Batch Routine...',
+        msgSignLaunch: 'Deploying block:',
+    }
+};
 
 const app = {
     currentWeek: 1,
-    logOpen: false,
     isLoggedIn: false,
+    mode: 'direct', 
+    logOpen: false,
+    lang: 'zh', // 'zh' or 'en'
 
     $(id) { return document.getElementById(id); },
 
-    getSemester() {
-        return {
-            year: this.$('yearInput').value,
-            month: this.$('monthInput').value,
-            day: this.$('dayInput').value
-        };
+    // ==========================================
+    // Core Control
+    // ==========================================
+    toggleLang() {
+        this.lang = this.lang === 'zh' ? 'en' : 'zh';
+        this.$('langBtn').textContent = this.lang === 'zh' ? 'EN' : '中';
+        this.applyLanguage();
+        if (this.isLoggedIn) {
+            this.updateWeekDisplay();
+            this.loadWeek(); // Reload grid with new lang
+        }
     },
 
-    toast(msg, type = '') {
+    applyLanguage() {
+        const d = DICT[this.lang];
+        this.$('lblLogoSub').textContent = d.logoSub;
+        this.$('segDirect').textContent = d.segDirect;
+        this.$('segVpn').textContent = d.segVpn;
+        this.$('lblUid').textContent = d.lblUid;
+        this.$('studentId').placeholder = d.phUid;
+        this.$('lblVpnTitle').textContent = d.lblVpnTitle;
+        this.$('curlText').placeholder = d.phCurl;
+        this.$('lblSemester').textContent = d.lblSemester;
+        this.$('btnLogout').textContent = d.btnLogout;
+        this.$('lblTimeCtrl').textContent = d.lblTimeCtrl;
+        this.$('btnReset').textContent = d.btnReset;
+        this.$('btnReload').textContent = d.btnReload;
+        this.$('btnBatch').textContent = d.btnBatch;
+        this.$('lblStatBlocks').textContent = d.lblStatBlocks;
+        this.$('lblStatDone').textContent = d.lblStatDone;
+        this.$('lblWelcomeTitle').textContent = d.lblWelcomeTitle;
+        this.$('lblWelcomeSub').textContent = d.lblWelcomeSub;
+        if (this.$('lblVpnTooltip')) this.$('lblVpnTooltip').title = d.tooltip;
+
+        // Update login button immediately as well
+        if (!this.isLoggedIn) {
+            this.$('loginBtn').textContent = this.mode === 'vpn' ? d.btnLoginVpn : d.btnLoginDirect;
+        } else {
+            this.$('loginBtn').textContent = '...';
+        }
+    },
+
+    switchMode(modeTarget) {
+        if (this.isLoggedIn) return; 
+        
+        this.mode = modeTarget;
+        this.$('segDirect').className = `seg-btn ${modeTarget === 'direct' ? 'active' : ''}`;
+        this.$('segVpn').className = `seg-btn ${modeTarget === 'vpn' ? 'active' : ''}`;
+        
+        this.$('vpnInputArea').style.display = modeTarget === 'vpn' ? 'block' : 'none';
+        this.$('loginBtn').textContent = modeTarget === 'vpn' ? DICT[this.lang].btnLoginVpn : DICT[this.lang].btnLoginDirect;
+    },
+
+    getSemester() {
+        return { year: this.$('yearInput').value, month: this.$('monthInput').value, day: this.$('dayInput').value };
+    },
+
+    // ==========================================
+    // UI Pipeline
+    // ==========================================
+    toast(msg) {
         const el = document.createElement('div');
-        el.className = `toast ${type}`;
-        el.textContent = msg;
+        el.className = `toast`;
+        el.textContent = "> " + msg;
         this.$('toastContainer').appendChild(el);
         setTimeout(() => {
-            el.style.animation = 'toast-out 0.3s ease forwards';
+            el.style.animation = 'toast-out 0.3s cubic-bezier(0.2, 0, 0, 1) forwards';
             setTimeout(() => el.remove(), 300);
         }, 3000);
     },
 
-    log(msg, type = 'info') {
+    pushLog(msg, type = 'info') {
         const body = this.$('logBody');
-        const time = new Date().toLocaleTimeString('zh-CN', { hour12: false });
+        const time = new Date().toLocaleTimeString('en-GB', { hour12: false });
+        
+        const plainMsg = msg.replace(/<[^>]+>/g, '');
+        this.$('logLatest').textContent = `[${time}] ${plainMsg}`;
+        if (type === 'error') this.$('logLatest').style.color = '#000';
+        else if (type === 'warning') this.$('logLatest').style.color = '#D97706';
+        else this.$('logLatest').style.color = '#555';
+
         const entry = document.createElement('div');
         entry.className = 'log-entry';
         entry.innerHTML = `<span class="log-time">${time}</span><span class="log-msg ${type}">${msg}</span>`;
-        body.appendChild(entry);
-        body.scrollTop = body.scrollHeight;
+        // 改为 prepend 放在最顶部，符合上新下旧的用户习惯
+        body.prepend(entry);
+        body.scrollTop = 0;
+    },
+
+    toggleLog() {
+        this.logOpen = !this.logOpen;
+        const tray = document.querySelector('.log-tray');
+        const body = this.$('logBody');
+        
+        if (this.logOpen) {
+            tray.classList.add('open');
+            body.style.display = 'block';
+        } else {
+            tray.classList.remove('open');
+            body.style.display = 'none';
+        }
     },
 
     showLoading(show) {
@@ -46,114 +204,95 @@ const app = {
         return text && text.length > max ? text.slice(0, max - 1) + '…' : text;
     },
 
-    // --- Login ---
+    // ==========================================
+    // API Bindings
+    // ==========================================
     async login() {
+        const d = DICT[this.lang];
         const studentId = this.$('studentId').value.trim();
-        if (!studentId) {
-            this.toast('请输入学号', 'error');
-            return;
+        if (!studentId) return this.toast(this.lang === 'zh' ? '缺少 UID' : 'Missing UID');
+
+        let curlText = '';
+        if (this.mode === 'vpn') {
+            curlText = this.$('curlText').value.trim();
+            if (!curlText) return this.toast(this.lang === 'zh' ? '请粘帖 cURL' : 'cURL Missing');
         }
 
         const btn = this.$('loginBtn');
         const status = this.$('loginStatus');
         btn.disabled = true;
-        btn.textContent = '登录中…';
+        btn.textContent = '...';
         status.textContent = '';
-        status.className = 'status-text';
+        this.pushLog(d.msgLoginIssue, 'info');
 
         try {
-            const result = await window.pywebview.api.login(studentId);
+            let result;
+            if (this.mode === 'vpn') {
+                result = await window.pywebview.api.login_vpn(studentId, curlText);
+            } else {
+                result = await window.pywebview.api.login_direct(studentId);
+            }
+
             if (result.success) {
                 this.isLoggedIn = true;
-                status.textContent = `已登录 · ${result.userId}`;
-                status.className = 'status-text success';
-                this.log('登录成功', 'success');
-                this.toast('登录成功');
+                status.textContent = `UID: ${result.userId} (Online)`;
+                this.pushLog(`${d.msgLoginOk} (${result.userId})`, 'success');
 
-                // 切换按钮状态
                 btn.style.display = 'none';
                 this.$('logoutBtn').style.display = 'block';
                 this.$('studentId').disabled = true;
-                this.$('yearInput').disabled = true;
-                this.$('monthInput').disabled = true;
-                this.$('dayInput').disabled = true;
+                this.$('curlText').disabled = true;
+                ['yearInput', 'monthInput', 'dayInput', 'segDirect', 'segVpn'].forEach(i => this.$(i).disabled = true);
 
-                // 显示周数面板和统计
                 this.$('weekPanel').style.display = 'block';
                 this.$('statsPanel').style.display = 'flex';
 
-                // 跳转当前周
-                const sem = this.getSemester();
-                const week = await window.pywebview.api.get_current_week(sem.year, sem.month, sem.day);
-                this.currentWeek = week;
-                this.updateWeekDisplay();
-                this.loadWeek();
+                await this.jumpToCurrentWeek();
             } else {
-                status.textContent = result.error;
-                status.className = 'status-text error';
-                this.log(`登录失败: ${result.error}`, 'error');
-                this.toast('登录失败', 'error');
+                status.textContent = `Access Denied: ${result.error}`;
+                this.pushLog(`Denied: ${result.error}`, 'error');
                 btn.disabled = false;
-                btn.textContent = '登录';
+                btn.textContent = this.mode === 'vpn' ? d.btnLoginVpn : d.btnLoginDirect;
             }
         } catch (e) {
-            status.textContent = '网络异常';
-            status.className = 'status-text error';
-            this.log(`登录异常: ${e}`, 'error');
+            status.textContent = 'System Fault.';
+            this.pushLog(`Crash: ${e}`, 'error');
             btn.disabled = false;
-            btn.textContent = '登录';
+            btn.textContent = this.mode === 'vpn' ? d.btnLoginVpn : d.btnLoginDirect;
         }
     },
 
-    // --- Logout ---
     logout() {
+        const d = DICT[this.lang];
         this.isLoggedIn = false;
-
-        // 恢复登录区
+        
         const btn = this.$('loginBtn');
         btn.style.display = 'block';
         btn.disabled = false;
-        btn.textContent = '登录';
+        btn.textContent = this.mode === 'vpn' ? d.btnLoginVpn : d.btnLoginDirect;
+        
         this.$('logoutBtn').style.display = 'none';
-        this.$('studentId').disabled = false;
-        this.$('yearInput').disabled = false;
-        this.$('monthInput').disabled = false;
-        this.$('dayInput').disabled = false;
+        ['studentId', 'curlText', 'yearInput', 'monthInput', 'dayInput', 'segDirect', 'segVpn'].forEach(i => this.$(i).disabled = false);
         this.$('loginStatus').textContent = '';
-        this.$('loginStatus').className = 'status-text';
 
-        // 隐藏周数和统计
         this.$('weekPanel').style.display = 'none';
         this.$('statsPanel').style.display = 'none';
-
-        // 显示欢迎页
         this.$('welcomeView').style.display = 'flex';
         this.$('scheduleView').style.display = 'none';
 
-        this.log('已退出登录', 'warning');
-        this.toast('已退出登录');
+        this.pushLog(d.msgLogingOut, 'warning');
     },
 
-    // --- Week Navigation ---
+    // ==========================================
+    // Data Navigation
+    // ==========================================
     updateWeekDisplay() {
-        this.$('weekDisplay').textContent = `第 ${this.currentWeek} 周`;
+        const d = DICT[this.lang];
+        this.$('weekDisplay').textContent = `${d.weekPrefix}${this.currentWeek}${d.weekSuffix}`;
     },
 
-    prevWeek() {
-        if (this.currentWeek > 1) {
-            this.currentWeek--;
-            this.updateWeekDisplay();
-            this.loadWeek();
-        }
-    },
-
-    nextWeek() {
-        if (this.currentWeek < 18) {
-            this.currentWeek++;
-            this.updateWeekDisplay();
-            this.loadWeek();
-        }
-    },
+    prevWeek() { if (this.currentWeek > 1) { this.currentWeek--; this.updateWeekDisplay(); this.loadWeek(); } },
+    nextWeek() { if (this.currentWeek < 18) { this.currentWeek++; this.updateWeekDisplay(); this.loadWeek(); } },
 
     async jumpToCurrentWeek() {
         const sem = this.getSemester();
@@ -162,31 +301,28 @@ const app = {
         this.loadWeek();
     },
 
-    // --- Load Week ---
     async loadWeek() {
         this.showLoading(true);
         this.$('welcomeView').style.display = 'none';
-        this.$('scheduleView').style.display = 'block';
-        this.log(`加载第 ${this.currentWeek} 周课表…`);
+        this.$('scheduleView').style.display = 'flex';
 
         const sem = this.getSemester();
         try {
-            const data = await window.pywebview.api.get_week_courses(
-                this.currentWeek, sem.year, sem.month, sem.day
-            );
+            const data = await window.pywebview.api.get_week_courses(this.currentWeek, sem.year, sem.month, sem.day);
             this.renderSchedule(data);
-            this.log(`第 ${this.currentWeek} 周加载完成`, 'success');
         } catch (e) {
-            this.log(`加载失败: ${e}`, 'error');
-            this.toast('课表加载失败', 'error');
+            this.pushLog(`${DICT[this.lang].msgLoadFail} ${e}`, 'error');
         }
         this.showLoading(false);
     },
 
-    // --- Render ---
+    // ==========================================
+    // Rasterization
+    // ==========================================
     renderSchedule(data) {
         const grid = this.$('scheduleGrid');
         grid.innerHTML = '';
+        const d = DICT[this.lang];
 
         let totalCourses = 0;
         let signedCourses = 0;
@@ -201,14 +337,13 @@ const app = {
             totalCourses += coursesCount;
             signedCourses += daySigned;
 
-            const statText = coursesCount > 0 ? `${coursesCount}课 · ${daySigned}签` : '无课';
-
             const header = document.createElement('div');
             header.className = `day-header${dayData.isToday ? ' is-today' : ''}`;
+            const headerStat = coursesCount > 0 ? d.statBlocks(coursesCount, daySigned) : '&nbsp;';
             header.innerHTML = `
-                <div class="day-name">${dayData.weekday}</div>
+                <div class="day-name">${d.wkDays[i]}</div>
                 <div class="day-date">${dayData.date}</div>
-                <div class="day-stat">${statText}</div>
+                <div class="day-stat">${headerStat}</div>
             `;
             col.appendChild(header);
 
@@ -216,12 +351,10 @@ const app = {
             body.className = 'day-body';
 
             if (coursesCount === 0) {
-                body.innerHTML = '<div class="empty-day">无课程</div>';
+                body.innerHTML = `<div class="empty-day">${d.emptyDay}</div>`;
             } else {
-                const sorted = dayData.courses.sort((a, b) =>
-                    (a.classBeginTime || '').localeCompare(b.classBeginTime || '')
-                );
-                sorted.forEach(course => body.appendChild(this.createCourseCard(course)));
+                const sorted = dayData.courses.sort((a, b) => (a.classBeginTime || '').localeCompare(b.classBeginTime || ''));
+                sorted.forEach(course => body.appendChild(this.buildCard(course, d)));
             }
             col.appendChild(body);
             grid.appendChild(col);
@@ -231,103 +364,83 @@ const app = {
         this.$('signedCourses').textContent = signedCourses;
     },
 
-    createCourseCard(course) {
+    buildCard(course, d) {
         const card = document.createElement('div');
         const isSigned = String(course.signStatus) === '1';
         card.className = `course-card ${isSigned ? 'signed' : 'unsigned'}`;
 
-        const name = course.courseName || '未知课程';
+        const name = course.courseName || 'Class';
         const begin = (course.classBeginTime || '').slice(11, 16);
         const end = (course.classEndTime || '').slice(11, 16);
         const classroom = course.classroomName || '';
         const building = (course.teachBuildName || '').trim();
         const storey = (course.storeyName || '').trim();
-        const courseType = course.courseType || '';
-        const teachers = course.teachers || [course.teacherName || '未知'];
-
+        
         const locParts = [building, storey, classroom].filter(p => p && p !== 'null');
-        const location = locParts.join(' ') || '未知';
+        const location = locParts.join(' ') || (this.lang === 'zh' ? '未知' : 'Unknown');
 
-        let teacherText;
-        if (teachers.length === 1) teacherText = teachers[0];
-        else if (teachers.length <= 2) teacherText = teachers.join(' / ');
-        else teacherText = `${teachers[0]} 等${teachers.length}人`;
+        const teachers = course.teachers || [];
+        let teacherText = teachers.length === 1 ? teachers[0] : teachers.join(' & ');
 
-        const ids = JSON.stringify(course.courseSchedIds || [course.id]);
-        const escapedIds = ids.replace(/"/g, '&quot;');
+        const ids = JSON.stringify(course.courseSchedIds || [course.id]).replace(/"/g, '&quot;');
         const escapedName = name.replace(/'/g, "\\'");
 
         card.innerHTML = `
             <div class="card-header">
-                <span class="course-name">${this.truncate(name, 18)}</span>
-                <span class="sign-badge ${isSigned ? 'signed' : 'unsigned'}">${isSigned ? '已签' : '未签'}</span>
+                <span class="course-name">${this.truncate(name, 22)}</span>
+                <span class="sign-badge ${isSigned ? 'signed' : 'unsigned'}">${isSigned ? d.cardBadgeDone : d.cardBadgePending}</span>
             </div>
             <div class="card-meta">
-                <span>${begin}–${end} · ${courseType}</span>
-                <span>${this.truncate(location, 16)}</span>
+                <span>[${begin} - ${end}]</span>
+                <span>${this.truncate(location, 18)}</span>
                 <span>${teacherText}</span>
             </div>
             <div class="card-action">
                 <button class="btn-sign ${isSigned ? 'signed' : ''}"
-                        onclick="${isSigned ? '' : `app.signCourse(${escapedIds}, '${escapedName}')`}"
-                        title="${isSigned ? '已完成签到' : '点击签到'}">
-                    ${isSigned ? '已签到' : '签到'}
+                        onclick="${isSigned ? '' : `app.signCourse(${ids}, '${escapedName}')`}">
+                    ${isSigned ? d.cardDone : d.cardSign}
                 </button>
             </div>
         `;
-
         return card;
     },
 
-    // --- Sign ---
+    // ==========================================
+    // Executions
+    // ==========================================
     async signCourse(ids, name) {
-        this.log(`签到: ${name}…`);
-        this.toast(`正在签到…`);
-
+        this.pushLog(`${DICT[this.lang].msgSignLaunch} ${name}...`);
         try {
             const result = await window.pywebview.api.sign_course(JSON.stringify(ids));
             if (result.success > 0) {
-                this.log(`签到成功: ${name} (${result.success}/${result.total})`, 'success');
-                this.toast(`${name} 签到成功`, 'success');
+                this.toast(`Block: ${name} (Pass)`);
                 this.loadWeek();
             } else {
-                this.log(`签到失败: ${name}`, 'error');
-                this.toast(`签到失败`, 'error');
+                this.toast(`Denied`);
             }
         } catch (e) {
-            this.log(`签到异常: ${e}`, 'error');
-            this.toast('签到失败', 'error');
+            this.pushLog(`Crash: ${e}`, 'error');
         }
     },
 
     async batchSign() {
         const sem = this.getSemester();
-        this.log(`一键打卡第 ${this.currentWeek} 周…`);
-        this.toast('正在一键打卡…');
-
+        this.pushLog(`${DICT[this.lang].msgBatchLaunch} (W${this.currentWeek})...`);
         try {
-            const result = await window.pywebview.api.batch_sign_week(
-                this.currentWeek, sem.year, sem.month, sem.day
-            );
-            const msg = `完成: ${result.success}/${result.total}`;
-            this.log(msg, result.success > 0 ? 'success' : 'warning');
-            this.toast(msg, result.success > 0 ? 'success' : 'error');
+            const result = await window.pywebview.api.batch_sign_week(this.currentWeek, sem.year, sem.month, sem.day);
+            this.toast(`Batch Run: [${result.success}/${result.total}]`);
             this.loadWeek();
         } catch (e) {
-            this.log(`一键打卡异常: ${e}`, 'error');
-            this.toast('一键打卡失败', 'error');
+            this.pushLog(`Crash: ${e}`, 'error');
         }
-    },
-
-    // --- Log Drawer ---
-    toggleLog() {
-        this.logOpen = !this.logOpen;
-        this.$('logDrawer').classList.toggle('open', this.logOpen);
     }
 };
 
+window.app = app; 
+
 window.addEventListener('pywebviewready', () => {
-    app.log('系统就绪');
+    app.applyLanguage();
+    app.pushLog(DICT[app.lang].msgSysReady);
     app.$('studentId').addEventListener('keydown', (e) => {
         if (e.key === 'Enter') app.login();
     });

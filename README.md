@@ -1,115 +1,47 @@
+# BUAASignTool — Minimalism Arch.
 
-# BUAASignTool — 北航课程打卡助手
+北京航空航天大学 iClass 桌面端辅助工具。基于纯净的单体架构设计与极度克制的极简主义美学。支持**中英双语**切换。
 
-**BUAASignTool** 是一款专为北京航空航天大学 iClass 平台设计的桌面端辅助工具。它通过原生接口调用，帮助同学在 PC 端快速完成课程签到与课表查看，摆脱手机 App 的束缚。
+> 免责协议：本项目为自动化网络请求的实验性容器，请基于个人判断决定是否部署。因越权操作导致的问题由接入者自行承担。
 
-> **免责声明**：本项目仅供学习交流使用。使用者需严格遵守学校相关规定，因使用本工具产生的一切后果（如违规记录等）由使用者本人承担。
+## The Core
 
----
+- **单片机架构 (Monolithic)** — 将直连层、校外隧道探针与通信解析汇聚为单一 `app.py`。
+- **虚空极简 (Void Aesthetics)** — 剔除全部环境阴影、圆角。通过 1px 线切割呈现数据。使用深邃的 Console 格式重绘日记。
+- **跨栈容器 (Tunneling)** — 抛弃复杂的本地设置，侧边栏内置完善正则解析的 cURL 引擎，支持高墙 WebVPN 环境的深穿透一键接管。
+- **线程组装 (Parallelism)** — `requests.Session()` 与 7 核心 `ThreadPoolExecutor` 使区块课表合并呈现。
+- **极速热替 (Local i18n)** — 全局字典式注入，支持秒切极简的业务态全英文/中文标识。
 
-## 🚀 快速下载（推荐）
+## 部署引导
 
-如果你不想配置 Python 环境，可以直接下载我们已经打包好的**绿色免安装版**：
+### 1. 挂载环境依赖
 
-1. 前往 **[Releases 页面](https://github.com/Fucov/BUAASignTool/releases)**。
-2. 下载最新版本的 `BUAASignTool_v1.0.exe` (Windows)。
-3. 双击即可运行，无需安装任何依赖。
-
----
-
-## ✨ 功能特性
-
-* **极简主义界面** — 基于 `pywebview` + 原生前端技术构建，黑白灰工业风设计。
-* **智能周视图** — 7列网格化布局，自动同步教务系统每日课程安排。
-* **高效打卡** —
-* **一键全签**：支持整周课程批量自动打卡。
-* **单课手动**：精准控制每一节课的签到状态。
-
-
-* **状态实时同步** — 已签/未签状态一目了然，签到成功后自动禁用按钮防止误操作。
-* **双模运行** —
-* **GUI 模式**：直观、易用，适合日常使用。
-* **CLI 模式**：极简、极速，适合无图形环境或极客用户。
-
-
-
----
-
-## 🛠️ 开发者指南
-
-如果你希望自行构建或修改代码：
-
-### 环境要求
-
-* Python 3.8+
-* Windows / macOS / Linux (需安装对应的 WebView2 运行库)
-
-### 运行步骤
+必须将本机环境与本项目所需清单对其，尤其是 AES 加密隧道需要的组件：
 
 ```bash
-# 1. 克隆项目
-git clone https://github.com/Fucov/BUAASignTool.git
-cd BUAASignTool
-
-# 2. 安装依赖
 pip install -r requirements.txt
-
-# 3. 启动应用
-python app.py  # 启动图形界面
-# 或
-python ClassSignToolCLI.py  # 启动命令行版
-
 ```
 
----
+*(列表：`pywebview`, `requests`, `pycryptodome`)*
 
-## 🏗️ 技术架构与逻辑
+### 2. 升起应用
 
-### 核心技术栈
-
-| 模块 | 实现方案 |
-| --- | --- |
-| **UI 渲染** | HTML5 + CSS3 + Vanilla JS (极简设计) |
-| **桌面容器** | `pywebview` (原生系统 WebView 桥接) |
-| **网络请求** | `requests.Session` (保持会话，连接复用) |
-| **API 交互** | 基于 `webview.js_api` 的异步通信 |
-
-### 项目结构
-
-```text
-BUAASignTool/
-├── app.py                 # GUI 主入口
-├── ClassSignToolCLI.py    # CLI 命令行入口
-├── icon.ico               # 程序图标
-├── web/                   # 前端资源目录
-│   ├── index.html         # 结构
-│   ├── style.css          # 样式
-│   └── app.js             # 交互逻辑
-└── requirements.txt       # 依赖声明
-
+```bash
+python app.py
 ```
 
----
+### 3. 操作矩阵
+- **内网环境 (Direct)**: 选择 `校园直连` -> 填入 UID 学号 -> 点击部署。
+- **WebVPN 环境 (Tunneling)**: 选择 `校外穿透` -> 点击 `ⓘ` 查看提示并将其指导作为实践 -> 粘贴浏览器拦截出的 cURL 结构 -> 点击部署。
 
-## ❓ 常见问题 (FAQ)
+## 网络接口映射 (API Topology)
 
-**Q: 为什么登录不需要密码？**
-iClass 接口设计允许通过学号验证会话。为了保护隐私，本工具不接触、不存储您的任何密码。
+- `app.py` 内部使用智能探针。
+- **鉴权节点**: `https-8346 /app/user/login.action`
+- **区块组装**: `https-8346 /app/course/get_stu_course_sched.action`
+- **穿透打击**: `http-8081 /app/course/stu_scan_sign.action` 
 
-**Q: 点击签到没有反应？**
-请确认：1. 教师已开启签到；2. 当前在签到时间范围内；3. 网络连接正常。
+## Q&A 
 
-**Q: 是否会产生封号风险？**
-本工具发出的请求特征与官方 App 完全一致，但频繁、异常的自动化操作仍可能引起注意，请适度使用。
-
----
-
-## 📝 开源协议
-
-本项目基于 [MIT License](https://www.google.com/search?q=LICENSE) 开源。
-
-**Project Link:** [https://github.com/Fucov/BUAASignTool](https://github.com/Fucov/BUAASignTool)
-
----
-
-**如果你觉得这个工具有帮到你，欢迎给仓库点个 ⭐️ Star！**
+- **无 cURL 响应?** 确保在 d.buaa.edu.cn F12 的网络面板 (Network) 内提取的是 "Copy as cURL (cmd / bash)" 或者 "Copy as cURL" 均可，最新正则已可自动规避 MacOS (`\`) 和 Windows (`^`) 的转义污染。
+- **打卡提示驳回?** 节点已被封锁（老师未开放签到），或在非校园/非隧道的无效域被阻绝。

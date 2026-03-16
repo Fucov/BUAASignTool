@@ -1,123 +1,129 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
-
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>北航课程打卡系统</title>
+    <title>BUAA Course Assistant</title>
     <link rel="stylesheet" href="style.css">
-    <!-- 使用系统字体，无需远程加载 -->
+    <!-- 系统级 UI 字体 -->
 </head>
-
 <body>
     <div class="layout">
-        <!-- 左侧控制栏 -->
+        <!-- 核心左侧导航区 -->
         <aside class="sidebar">
             <header class="sidebar-header">
-                <h1 class="logo">打卡</h1>
-                <span class="logo-sub">BUAA · iClass</span>
+                <h1 class="logo">Sign.</h1>
+                <span class="logo-sub" id="lblLogoSub">Minimalism · Utility</span>
+                
+                <!-- 语言切换器 -->
+                <div class="lang-switch" onclick="app.toggleLang()">
+                    <span id="langBtn">EN</span>
+                </div>
             </header>
 
             <div class="sidebar-content">
-                <!-- 登录区 -->
-                <section class="panel" id="loginPanel">
-                    <label class="field-label">学号</label>
-                    <input type="text" id="studentId" class="input" placeholder="请输入学号" autocomplete="off">
+                <!-- 网络模式配置器 -->
+                <div class="segment-control" id="networkSegment">
+                    <button class="seg-btn active" onclick="app.switchMode('direct')" id="segDirect">校园直连</button>
+                    <button class="seg-btn" onclick="app.switchMode('vpn')" id="segVpn">校外穿透</button>
+                </div>
 
-                    <label class="field-label" style="margin-top: 16px;">学期起始日</label>
+                <!-- 认证区块 -->
+                <section class="panel" id="loginPanel">
+                    <label class="field-label" id="lblUid">学号</label>
+                    <input type="text" id="studentId" class="input" placeholder="输入学号" autocomplete="off">
+
+                    <div id="vpnInputArea" style="display: none; margin-top: 16px;">
+                        <label class="field-label">
+                            <span id="lblVpnTitle">网络凭证 (cURL)</span>
+                            <span class="info-icon" id="lblVpnTooltip" title="因学校安全策略限制，在校外网络需进行凭证同步：&#10;1. 浏览器登录 d.buaa.edu.cn&#10;2. 按 F12 打开开发者工具，切到 Network (网络) 标签&#10;3. 右键刷新后的任意一条请求，选择【Copy/复制】 -> 【Copy as cURL (cmd / bash)】&#10;4. 粘贴至下方输入框即可">ⓘ</span>
+                        </label>
+                        <textarea id="curlText" class="input textarea" placeholder="在此粘贴 cURL 指令..." rows="4"></textarea>
+                    </div>
+
+                    <label class="field-label" style="margin-top: 16px;" id="lblSemester">学期基准日 (Y-M-D)</label>
                     <div class="date-row">
                         <input type="number" id="yearInput" class="input input-sm" value="2026" min="2020" max="2030">
-                        <span class="date-sep">-</span>
+                        <span class="date-sep">/</span>
                         <input type="number" id="monthInput" class="input input-sm" value="3" min="1" max="12">
-                        <span class="date-sep">-</span>
+                        <span class="date-sep">/</span>
                         <input type="number" id="dayInput" class="input input-sm" value="2" min="1" max="31">
                     </div>
 
                     <button class="btn btn-primary" id="loginBtn" onclick="app.login()">
-                        登录
+                        登 录
                     </button>
-
-                    <!-- 退出登录按钮（登录后显示） -->
-                    <button class="btn btn-ghost" id="logoutBtn" onclick="app.logout()"
-                        style="display:none; margin-top:8px;">
+                    <button class="btn btn-ghost" id="logoutBtn" onclick="app.logout()" style="display:none; margin-top:8px;">
                         退出登录
                     </button>
-
                     <div id="loginStatus" class="status-text"></div>
                 </section>
 
-                <!-- 周数导航 -->
+                <!-- 周导航与控制中心 -->
                 <section class="panel" id="weekPanel" style="display:none;">
-                    <label class="field-label">周数</label>
+                    <label class="field-label" id="lblTimeCtrl">时间控制</label>
                     <div class="week-nav">
                         <button class="btn-icon" onclick="app.prevWeek()">‹</button>
                         <span class="week-display" id="weekDisplay">第 1 周</span>
                         <button class="btn-icon" onclick="app.nextWeek()">›</button>
                     </div>
                     <div class="action-row">
-                        <button class="btn btn-ghost" onclick="app.jumpToCurrentWeek()">本周</button>
-                        <button class="btn btn-ghost" onclick="app.loadWeek()">刷新</button>
+                        <button class="btn btn-ghost" onclick="app.jumpToCurrentWeek()" id="btnReset">本周</button>
+                        <button class="btn btn-ghost" onclick="app.loadWeek()" id="btnReload">刷新</button>
                     </div>
-                    <button class="btn btn-accent" onclick="app.batchSign()">
-                        一键打卡
+                    <button class="btn btn-primary btn-dark" style="margin-top: 12px; background: #000;" id="btnBatch" onclick="app.batchSign()">
+                        一键签到
                     </button>
                 </section>
 
-                <!-- 统计 -->
+                <!-- 极简数据板 -->
                 <section class="panel stats-panel" id="statsPanel" style="display:none;">
                     <div class="stat-item">
                         <span class="stat-value" id="totalCourses">0</span>
-                        <span class="stat-label">本周课程</span>
+                        <span class="stat-label" id="lblStatBlocks">排课数</span>
                     </div>
                     <div class="stat-item">
                         <span class="stat-value" id="signedCourses">0</span>
-                        <span class="stat-label">已签到</span>
+                        <span class="stat-label" id="lblStatDone">已签到</span>
                     </div>
                 </section>
             </div>
-
-            <!-- 日志入口 -->
-            <div class="sidebar-footer">
-                <button class="btn-text" onclick="app.toggleLog()">操作日志 ↑</button>
-            </div>
         </aside>
 
-        <!-- 右侧主区域 -->
+        <!-- 数据展呈主视窗 -->
         <main class="content">
-            <!-- 加载状态 -->
+            <!-- Loading -->
             <div class="loading-overlay" id="loadingOverlay" style="display:none;">
                 <div class="loading-spinner"></div>
-                <p class="loading-text">加载中…</p>
             </div>
 
-            <!-- 欢迎页 -->
+            <!-- 空白态 -->
             <div class="welcome" id="welcomeView">
                 <div class="welcome-inner">
-                    <h2>北航课程打卡系统</h2>
-                    <p>输入学号登录后查看课表</p>
+                    <h2 style="font-size: 24px; font-weight: 600; color: #000;" id="lblWelcomeTitle">Minimalism Sign.</h2>
+                    <p style="margin-top: 4px; color: #555; font-size: 11px; letter-spacing: 1.5px;" id="lblWelcomeSub">等待用户鉴权</p>
                 </div>
             </div>
 
-            <!-- 课表网格 -->
+            <!-- 数据网格 -->
             <div class="schedule" id="scheduleView" style="display:none;">
                 <div class="schedule-grid" id="scheduleGrid"></div>
             </div>
 
-            <!-- 操作日志（底部抽屉，在主区域内） -->
-            <div class="log-drawer" id="logDrawer">
-                <div class="log-header">
-                    <span>操作日志</span>
-                    <button class="btn-icon btn-icon-sm" onclick="app.toggleLog()">×</button>
+            <!-- 底部日志台 -->
+            <div class="log-tray">
+                <div class="log-tray-header" onclick="app.toggleLog()">
+                    <span id="logLatest">系统准备就绪。</span>
+                    <span class="log-toggle-icon">^</span>
                 </div>
-                <div class="log-body" id="logBody"></div>
+                <div class="log-tray-body" id="logBody" style="display: none;"></div>
             </div>
         </main>
     </div>
 
-    <!-- Toast -->
+    <!-- 浮窗 -->
     <div class="toast-container" id="toastContainer"></div>
 
     <script src="app.js"></script>
 </body>
-
 </html>
