@@ -57,8 +57,9 @@ def parse_buaa_curl(curl_text):
     兼容由 Safari/Chrome 生成的 MacOS (bash/zsh) 反斜杠续行，及 Windows Cmd (^ 续行)。
     """
     # 彻底抹平跨平台的续行符及其附带的缩进或空白
-    clean_text = re.sub(r'\\\s*\n\s*', ' ', curl_text)
-    clean_text = re.sub(r'\^\s*\n\s*', ' ', clean_text)
+    clean_text = curl_text.replace('^', '')
+    clean_text = re.sub(r'\\\s*\n\s*', ' ', clean_text)
+    clean_text = re.sub(r'\n\s*', ' ', clean_text)
 
     # 识别标准的 Cookie 头 (-H / -b)，提取单/双引号内部的全部内容
     # 适配形如: -H 'Cookie: a=1; b=2'

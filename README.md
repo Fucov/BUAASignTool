@@ -32,7 +32,7 @@ python app.py
 
 ### 3. 操作矩阵
 - **内网环境 (Direct)**: 选择 `校园直连` -> 填入 UID 学号 -> 点击部署。
-- **WebVPN 环境 (Tunneling)**: 选择 `校外穿透` -> 点击 `ⓘ` 查看提示并将其指导作为实践 -> 粘贴浏览器拦截出的 cURL 结构 -> 点击部署。
+- **WebVPN 环境 (Tunneling)**: 选择 `校外穿透` -> 登录 d.buaa.edu.cn -> 打开浏览器控制台的网络 (Network) -> 刷新页面 -> 右键复制一个链接为 cURL (cmd 和 bash 均可) -> 将其粘贴至程序中 -> 点击部署。
 
 ## 网络接口映射 (API Topology)
 

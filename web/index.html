@@ -36,11 +36,8 @@
                     <div id="vpnInputArea" style="display: none; margin-top: 16px;">
                         <label class="field-label">
                             <span id="lblVpnTitle">网络凭证 (cURL)</span>
-                            <span class="info-icon" onclick="app.toggleVpnHint()" id="lblInfoIcon">ⓘ</span>
+                            <span class="info-icon" id="lblVpnTooltip" title="登录 d.buaa.edu.cn / 打开控制台选择网络(Network) / 刷新页面 / 右键复制一个链接为curl (cmd和bash均可)">ⓘ</span>
                         </label>
-                        <div class="vpn-hint-box" id="vpnHintBox" style="display: none;">
-                            <div id="lblVpnTooltip"></div>
-                        </div>
                         <textarea id="curlText" class="input textarea" placeholder="在此粘贴 cURL 指令..." rows="4"></textarea>
                     </div>
 

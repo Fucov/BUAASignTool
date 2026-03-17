@@ -23,7 +23,7 @@ const DICT = {
         lblStatDone: '已签到',
         lblWelcomeTitle: 'BUAA 课程助手',
         lblWelcomeSub: '等待身份校验',
-        tooltip: '在校外需进行凭证同步：\n1. 登录 d.buaa.edu.cn\n2. F12 打开网络 (Network) 标签\n3. 右键刷新后的请求 ➔ Copy ➔ Copy as cURL\n4. 粘贴至下方输入框',
+        tooltip: '登录 d.buaa.edu.cn / 打开控制台选择网络(Network) / 刷新页面 / 右键复制一个链接为curl (cmd和bash均可)',
         weekPrefix: '第 ',
         weekSuffix: ' 周',
         wkDays: ['周一', '周二', '周三', '周四', '周五', '周六', '周日'],
@@ -63,7 +63,7 @@ const DICT = {
         lblStatDone: 'Verified',
         lblWelcomeTitle: 'Minimalism Sign.',
         lblWelcomeSub: 'Awaiting Authentication',
-        tooltip: 'WebVPN tunneling requires Cookie syncing:\n1. Login via d.buaa.edu.cn\n2. Open DevTools (F12) -> Network\n3. Right-click any request -> Copy as cURL\n4. Paste payload here',
+        tooltip: 'Login to d.buaa.edu.cn / Open DevTools (Network) / Refresh / Right-click a request to copy as cURL (bash & cmd both supported)',
         weekPrefix: 'Week ',
         weekSuffix: '',
         wkDays: ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'],
@@ -125,7 +125,7 @@ const app = {
         this.$('lblStatDone').textContent = d.lblStatDone;
         this.$('lblWelcomeTitle').textContent = d.lblWelcomeTitle;
         this.$('lblWelcomeSub').textContent = d.lblWelcomeSub;
-        if (this.$('lblVpnTooltip')) this.$('lblVpnTooltip').textContent = d.tooltip;
+        if (this.$('lblVpnTooltip')) this.$('lblVpnTooltip').title = d.tooltip;
 
         // Update login button immediately as well
         if (!this.isLoggedIn) {
@@ -144,21 +144,6 @@ const app = {
         
         this.$('vpnInputArea').style.display = modeTarget === 'vpn' ? 'block' : 'none';
         this.$('loginBtn').textContent = modeTarget === 'vpn' ? DICT[this.lang].btnLoginVpn : DICT[this.lang].btnLoginDirect;
-    },
-
-    toggleVpnHint() {
-        const box = this.$('vpnHintBox');
-        if (box.classList.contains('show')) {
-            box.classList.remove('show');
-            setTimeout(() => {
-                if (!box.classList.contains('show')) box.style.display = 'none';
-            }, 300);
-        } else {
-            box.style.display = 'block';
-            // Trigger reflow to restart animation reliably
-            void box.offsetWidth;
-            box.classList.add('show');
-        }
     },
 
     getSemester() {
