@@ -36,8 +36,11 @@
                     <div id="vpnInputArea" style="display: none; margin-top: 16px;">
                         <label class="field-label">
                             <span id="lblVpnTitle">网络凭证 (cURL)</span>
-                            <span class="info-icon" id="lblVpnTooltip" title="因学校安全策略限制，在校外网络需进行凭证同步：&#10;1. 浏览器登录 d.buaa.edu.cn&#10;2. 按 F12 打开开发者工具，切到 Network (网络) 标签&#10;3. 右键刷新后的任意一条请求，选择【Copy/复制】 -> 【Copy as cURL (cmd / bash)】&#10;4. 粘贴至下方输入框即可">ⓘ</span>
+                            <span class="info-icon" onclick="app.toggleVpnHint()" id="lblInfoIcon">ⓘ</span>
                         </label>
+                        <div class="vpn-hint-box" id="vpnHintBox" style="display: none;">
+                            <div id="lblVpnTooltip"></div>
+                        </div>
                         <textarea id="curlText" class="input textarea" placeholder="在此粘贴 cURL 指令..." rows="4"></textarea>
                     </div>
 

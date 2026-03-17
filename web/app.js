@@ -125,7 +125,7 @@ const app = {
         this.$('lblStatDone').textContent = d.lblStatDone;
         this.$('lblWelcomeTitle').textContent = d.lblWelcomeTitle;
         this.$('lblWelcomeSub').textContent = d.lblWelcomeSub;
-        if (this.$('lblVpnTooltip')) this.$('lblVpnTooltip').title = d.tooltip;
+        if (this.$('lblVpnTooltip')) this.$('lblVpnTooltip').textContent = d.tooltip;
 
         // Update login button immediately as well
         if (!this.isLoggedIn) {
@@ -144,6 +144,21 @@ const app = {
         
         this.$('vpnInputArea').style.display = modeTarget === 'vpn' ? 'block' : 'none';
         this.$('loginBtn').textContent = modeTarget === 'vpn' ? DICT[this.lang].btnLoginVpn : DICT[this.lang].btnLoginDirect;
+    },
+
+    toggleVpnHint() {
+        const box = this.$('vpnHintBox');
+        if (box.classList.contains('show')) {
+            box.classList.remove('show');
+            setTimeout(() => {
+                if (!box.classList.contains('show')) box.style.display = 'none';
+            }, 300);
+        } else {
+            box.style.display = 'block';
+            // Trigger reflow to restart animation reliably
+            void box.offsetWidth;
+            box.classList.add('show');
+        }
     },
 
     getSemester() {

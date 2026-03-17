@@ -81,11 +81,13 @@ def parse_buaa_curl(curl_text):
     return False, "解析失败: 无法在提供的 cURL 中找到 'Cookie:' 或 '-b' 字段"
 
 
+# Windows 兼容性: 绝不要在开放给 js_api 的类中做 window=self 赋值，会导致 Python.NET 无限递归崩溃
+_APP_CONTEXT = {}
+
 class Api:
     """暴露给前端的 Python 底层调用集"""
 
     def __init__(self):
-        self.window = None
         self.userId = None
         self.sessionId = None
         self.use_vpn = False
@@ -98,15 +100,15 @@ class Api:
         })
         self._week_cache = {}
 
-    def set_window(self, window):
-        """挂载 pywebview Window 实体以便注入 JS 方法"""
-        self.window = window
-
     def _log(self, msg, msg_type="info"):
         """跨语言管道: 将本地事件逆推至前端 DOM UI"""
-        if self.window:
+        window = _APP_CONTEXT.get('window')
+        if window:
             safe_msg = msg.replace('\\', '\\\\').replace('"', '\\"').replace("'", "\\'")
-            self.window.evaluate_js(f"window.app.pushLog('{safe_msg}', '{msg_type}')")
+            try:
+                window.evaluate_js(f"window.app.pushLog('{safe_msg}', '{msg_type}')")
+            except Exception:
+                pass
 
     def _request(self, method, scheme, host, port, path, **kwargs):
         """核心路由接管: 依据当前运行环境自适应封装路由包装、通信隧道及拉美语系 Header 污染校验"""
@@ -259,7 +261,7 @@ class Api:
         if success > 0:
             self._log(f"触发打卡流程: 准入验证拦截率 0，成功投递 {success}/{len(course_ids)} 枚票据。", "success")
         else:
-            self._log(f"触发打卡流程: 状态驳回，节点可能已封锁（尚未开签或超越时间面）。", "warning")
+            self._log("触发打卡流程: 状态驳回，节点可能已封锁（尚未开签或超越时间面）。", "warning")
             
         return {'success': success, 'total': len(course_ids)}
 
@@ -302,5 +304,5 @@ if __name__ == '__main__':
         min_size=(1100, 700),
         text_select=False
     )
-    api.set_window(app_window)
+    _APP_CONTEXT['window'] = app_window
     webview.start(debug=False)

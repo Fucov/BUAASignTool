@@ -21,7 +21,7 @@
     --success: #16A34A;
     --warning: #D97706;
 
-    --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    --font-sans: "Segoe UI", "Inter", -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Microsoft YaHei", sans-serif;
     --font-mono: 'JetBrains Mono', 'Consolas', 'Courier New', monospace;
 
     --sidebar-width: 260px;
@@ -182,11 +182,34 @@ html, body {
     justify-content: center;
     font-size: 10px;
     color: var(--gray-400);
-    cursor: help;
+    cursor: pointer;
     font-weight: normal;
+    transition: color var(--transition);
 }
 .info-icon:hover {
     color: var(--black);
+}
+
+.vpn-hint-box {
+    font-size: 11px;
+    color: var(--gray-600);
+    margin-bottom: 8px;
+    line-height: 1.6;
+    background: var(--white);
+    padding: 12px;
+    border: 1px solid var(--gray-200);
+    white-space: pre-wrap;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+}
+.vpn-hint-box.show {
+    opacity: 1;
+    animation: fadeIn 0.3s forwards;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(-4px); }
+    to { opacity: 1; transform: translateY(0); }
 }
 
 .input {
