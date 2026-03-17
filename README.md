@@ -56,7 +56,7 @@ python app.py
 1. 打开 BUAA Sign Tool，在左侧边栏的“网络环境”下拉框中选择 **“非校园网 (WebVPN)”**。
 2. 此时会展开一个文本框，将刚才复制的 cURL 完整粘贴进去。
 3. 输入你的学号，点击登录即可。
-   - *[在此处插入截图：展示软件界面中粘贴 cURL 的位置]*
+   -  <img width="1730" height="1121" alt="image" src="https://github.com/user-attachments/assets/cc5d2bea-6001-4893-874a-53d5058420fe" />
 
 #### 附：cURL 示例参考
 软件会自动从您粘贴的命令中提取 `_zte_cid_` 与 `wengine_vpn_ticket...`，您复制的内容大致应如下所示：
