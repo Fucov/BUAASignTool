@@ -1,12 +1,12 @@
 /**
- * 北航课程助手 — 前端交互枢纽 / i18n
+ * 北航课程助手 — 前端逻辑 / 国际化
  */
 
 const DICT = {
     'zh': {
         logoSub: '极简 · 高效',
         segDirect: '校园直连',
-        segVpn: '校外穿透 (WebVPN)',
+        segVpn: '校外网络',
         lblUid: '学号',
         phUid: '输入学号',
         lblVpnTitle: '网络凭证 (cURL)',
@@ -22,7 +22,7 @@ const DICT = {
         lblStatBlocks: '排课数',
         lblStatDone: '已签到',
         lblWelcomeTitle: 'BUAA 课程助手',
-        lblWelcomeSub: '等待身份校验',
+        lblWelcomeSub: '请在左侧登录',
         tooltip: '登录 d.buaa.edu.cn / 打开控制台选择网络(Network) / 刷新页面 / 右键复制一个链接为curl (cmd和bash均可)',
         weekPrefix: '第 ',
         weekSuffix: ' 周',
@@ -32,16 +32,16 @@ const DICT = {
         cardDone: '已完成',
         cardBadgePending: '未签',
         cardBadgeDone: '已签',
-        
+
         statBlocks: (total, done) => `${total} 节课 / 已签 ${done}`,
-        // Log parts
-        msgSysReady: '系统环境就绪。',
-        msgLoginIssue: '正在申请鉴权...',
-        msgLoginOk: '认证通过。',
-        msgLogingOut: '注销指令已提交。',
-        msgLoadFail: '数据解析遇阻:',
-        msgBatchLaunch: '触发批量签到序列...',
-        msgSignLaunch: '尝试签到区块:',
+        // 日志文案
+        msgSysReady: '就绪。',
+        msgLoginIssue: '正在登录...',
+        msgLoginOk: '登录成功。',
+        msgLogingOut: '已退出登录。',
+        msgLoadFail: '加载失败:',
+        msgBatchLaunch: '正在批量签到...',
+        msgSignLaunch: '正在签到:',
     },
     'en': {
         logoSub: 'Minimalism · Utility',
@@ -51,50 +51,50 @@ const DICT = {
         phUid: 'Enter ID',
         lblVpnTitle: 'Auth Token (cURL)',
         phCurl: 'Paste cURL here...',
-        lblSemester: 'Semester Pivot (Y-M-D)',
+        lblSemester: 'Semester Start (Y-M-D)',
         btnLoginDirect: 'Sign In',
         btnLoginVpn: 'Parse & Connect',
         btnLogout: 'Sign Out',
         lblTimeCtrl: 'Time Frame',
         btnReset: 'Current',
         btnReload: 'Refresh',
-        btnBatch: 'Execute All',
+        btnBatch: 'Sign All',
         lblStatBlocks: 'Blocks',
-        lblStatDone: 'Verified',
-        lblWelcomeTitle: 'Minimalism Sign.',
-        lblWelcomeSub: 'Awaiting Authentication',
+        lblStatDone: 'Signed',
+        lblWelcomeTitle: 'BUAA Sign Tool',
+        lblWelcomeSub: 'Please sign in to continue',
         tooltip: 'Login to d.buaa.edu.cn / Open DevTools (Network) / Refresh / Right-click a request to copy as cURL (bash & cmd both supported)',
         weekPrefix: 'Week ',
         weekSuffix: '',
         wkDays: ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'],
-        emptyDay: 'Null Reference',
-        cardSign: 'EXECUTE',
-        cardDone: 'VERIFIED',
+        emptyDay: 'No classes',
+        cardSign: 'SIGN',
+        cardDone: 'DONE',
         cardBadgePending: 'PENDING',
         cardBadgeDone: 'SIGNED',
 
-        statBlocks: (total, done) => `${total} BLK / ${done} DONE`,
-        msgSysReady: 'System Operational.',
-        msgLoginIssue: 'Allocating Session...',
-        msgLoginOk: 'Authentication Granted.',
-        msgLogingOut: 'Session Terminated.',
-        msgLoadFail: 'Operation Aborted:',
-        msgBatchLaunch: 'Executing Batch Routine...',
-        msgSignLaunch: 'Deploying block:',
+        statBlocks: (total, done) => `${total} classes / ${done} signed`,
+        msgSysReady: 'Ready.',
+        msgLoginIssue: 'Signing in...',
+        msgLoginOk: 'Signed in.',
+        msgLogingOut: 'Signed out.',
+        msgLoadFail: 'Load failed:',
+        msgBatchLaunch: 'Batch signing...',
+        msgSignLaunch: 'Signing:',
     }
 };
 
 const app = {
     currentWeek: 1,
     isLoggedIn: false,
-    mode: 'direct', 
+    mode: 'direct',
     logOpen: false,
     lang: 'zh', // 'zh' or 'en'
 
     $(id) { return document.getElementById(id); },
 
     // ==========================================
-    // Core Control
+    // 核心控制
     // ==========================================
     toggleLang() {
         this.lang = this.lang === 'zh' ? 'en' : 'zh';
@@ -136,12 +136,12 @@ const app = {
     },
 
     switchMode(modeTarget) {
-        if (this.isLoggedIn) return; 
-        
+        if (this.isLoggedIn) return;
+
         this.mode = modeTarget;
         this.$('segDirect').className = `seg-btn ${modeTarget === 'direct' ? 'active' : ''}`;
         this.$('segVpn').className = `seg-btn ${modeTarget === 'vpn' ? 'active' : ''}`;
-        
+
         this.$('vpnInputArea').style.display = modeTarget === 'vpn' ? 'block' : 'none';
         this.$('loginBtn').textContent = modeTarget === 'vpn' ? DICT[this.lang].btnLoginVpn : DICT[this.lang].btnLoginDirect;
     },
@@ -151,7 +151,7 @@ const app = {
     },
 
     // ==========================================
-    // UI Pipeline
+    // 界面工具
     // ==========================================
     toast(msg) {
         const el = document.createElement('div');
@@ -167,7 +167,7 @@ const app = {
     pushLog(msg, type = 'info') {
         const body = this.$('logBody');
         const time = new Date().toLocaleTimeString('en-GB', { hour12: false });
-        
+
         const plainMsg = msg.replace(/<[^>]+>/g, '');
         this.$('logLatest').textContent = `[${time}] ${plainMsg}`;
         if (type === 'error') this.$('logLatest').style.color = '#000';
@@ -177,7 +177,7 @@ const app = {
         const entry = document.createElement('div');
         entry.className = 'log-entry';
         entry.innerHTML = `<span class="log-time">${time}</span><span class="log-msg ${type}">${msg}</span>`;
-        // 改为 prepend 放在最顶部，符合上新下旧的用户习惯
+        // 最新日志置顶
         body.prepend(entry);
         body.scrollTop = 0;
     },
@@ -186,7 +186,7 @@ const app = {
         this.logOpen = !this.logOpen;
         const tray = document.querySelector('.log-tray');
         const body = this.$('logBody');
-        
+
         if (this.logOpen) {
             tray.classList.add('open');
             body.style.display = 'block';
@@ -205,17 +205,17 @@ const app = {
     },
 
     // ==========================================
-    // API Bindings
+    // 登录与认证
     // ==========================================
     async login() {
         const d = DICT[this.lang];
         const studentId = this.$('studentId').value.trim();
-        if (!studentId) return this.toast(this.lang === 'zh' ? '缺少 UID' : 'Missing UID');
+        if (!studentId) return this.toast(this.lang === 'zh' ? '请输入学号' : 'Student ID required');
 
         let curlText = '';
         if (this.mode === 'vpn') {
             curlText = this.$('curlText').value.trim();
-            if (!curlText) return this.toast(this.lang === 'zh' ? '请粘帖 cURL' : 'cURL Missing');
+            if (!curlText) return this.toast(this.lang === 'zh' ? '请粘贴 cURL' : 'cURL required');
         }
 
         const btn = this.$('loginBtn');
@@ -249,14 +249,14 @@ const app = {
 
                 await this.jumpToCurrentWeek();
             } else {
-                status.textContent = `Access Denied: ${result.error}`;
-                this.pushLog(`Denied: ${result.error}`, 'error');
+                status.textContent = `登录失败: ${result.error}`;
+                this.pushLog(`失败: ${result.error}`, 'error');
                 btn.disabled = false;
                 btn.textContent = this.mode === 'vpn' ? d.btnLoginVpn : d.btnLoginDirect;
             }
         } catch (e) {
-            status.textContent = 'System Fault.';
-            this.pushLog(`Crash: ${e}`, 'error');
+            status.textContent = '连接异常';
+            this.pushLog(`异常: ${e}`, 'error');
             btn.disabled = false;
             btn.textContent = this.mode === 'vpn' ? d.btnLoginVpn : d.btnLoginDirect;
         }
@@ -265,12 +265,12 @@ const app = {
     logout() {
         const d = DICT[this.lang];
         this.isLoggedIn = false;
-        
+
         const btn = this.$('loginBtn');
         btn.style.display = 'block';
         btn.disabled = false;
         btn.textContent = this.mode === 'vpn' ? d.btnLoginVpn : d.btnLoginDirect;
-        
+
         this.$('logoutBtn').style.display = 'none';
         ['studentId', 'curlText', 'yearInput', 'monthInput', 'dayInput', 'segDirect', 'segVpn'].forEach(i => this.$(i).disabled = false);
         this.$('loginStatus').textContent = '';
@@ -284,7 +284,7 @@ const app = {
     },
 
     // ==========================================
-    // Data Navigation
+    // 周次导航
     // ==========================================
     updateWeekDisplay() {
         const d = DICT[this.lang];
@@ -317,7 +317,7 @@ const app = {
     },
 
     // ==========================================
-    // Rasterization
+    // 课表渲染
     // ==========================================
     renderSchedule(data) {
         const grid = this.$('scheduleGrid');
@@ -375,7 +375,7 @@ const app = {
         const classroom = course.classroomName || '';
         const building = (course.teachBuildName || '').trim();
         const storey = (course.storeyName || '').trim();
-        
+
         const locParts = [building, storey, classroom].filter(p => p && p !== 'null');
         const location = locParts.join(' ') || (this.lang === 'zh' ? '未知' : 'Unknown');
 
@@ -406,20 +406,20 @@ const app = {
     },
 
     // ==========================================
-    // Executions
+    // 签到操作
     // ==========================================
     async signCourse(ids, name) {
         this.pushLog(`${DICT[this.lang].msgSignLaunch} ${name}...`);
         try {
             const result = await window.pywebview.api.sign_course(JSON.stringify(ids));
             if (result.success > 0) {
-                this.toast(`Block: ${name} (Pass)`);
+                this.toast(`${name} 签到成功`);
                 this.loadWeek();
             } else {
-                this.toast(`Denied`);
+                this.toast(this.lang === 'zh' ? '签到失败' : 'Sign failed');
             }
         } catch (e) {
-            this.pushLog(`Crash: ${e}`, 'error');
+            this.pushLog(`异常: ${e}`, 'error');
         }
     },
 
@@ -428,15 +428,15 @@ const app = {
         this.pushLog(`${DICT[this.lang].msgBatchLaunch} (W${this.currentWeek})...`);
         try {
             const result = await window.pywebview.api.batch_sign_week(this.currentWeek, sem.year, sem.month, sem.day);
-            this.toast(`Batch Run: [${result.success}/${result.total}]`);
+            this.toast(`批量签到: ${result.success}/${result.total} 成功`);
             this.loadWeek();
         } catch (e) {
-            this.pushLog(`Crash: ${e}`, 'error');
+            this.pushLog(`异常: ${e}`, 'error');
         }
     }
 };
 
-window.app = app; 
+window.app = app;
 
 window.addEventListener('pywebviewready', () => {
     app.applyLanguage();
