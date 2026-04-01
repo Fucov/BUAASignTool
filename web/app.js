@@ -401,10 +401,7 @@ const app = {
     buildCard(course, d) {
         const card = document.createElement('div');
         const isSigned = String(course.signStatus) === '1';
-        card.className = `course-card ${isSigned ? 'signed' : 'unsigned'}`;
-        // 存储课程数据供签到使用
-        card._courseData = course;
-
+        
         const name = course.courseName || 'Class';
         const begin = (course.classBeginTime || '').slice(11, 16);
         const end = (course.classEndTime || '').slice(11, 16);
@@ -418,11 +415,12 @@ const app = {
         const teachers = course.teachers || [];
         let teacherText = teachers.length === 1 ? teachers[0] : teachers.join(' & ');
 
-        // 课程签到按钮
-        const btnHtml = isSigned 
+        // 课程签到按钮 - 使用 this 传递卡片引用
+        const btnHtml = isSigned
             ? `<button class="btn-sign signed" disabled>${d.cardDone}</button>`
-            : `<button class="btn-sign" onclick="app.signCourse('${name}')">${d.cardSign}</button>`;
+            : `<button class="btn-sign" onclick="app.signCourseByCard(this.closest('.course-card'))">${d.cardSign}</button>`;
 
+        card.className = `course-card ${isSigned ? 'signed' : 'unsigned'}`;
         card.innerHTML = `
             <div class="card-header">
                 <span class="course-name">${this.truncate(name, 22)}</span>
@@ -437,72 +435,92 @@ const app = {
                 ${btnHtml}
             </div>
         `;
+        
+        // innerHTML 之后存储课程数据
+        card._courseData = course;
         return card;
     },
 
     // ==========================================
     // 签到操作
     // ==========================================
-    signCourse(courseName) {
+    signCourseByCard(card) {
         // 防止重复点击
         if (this._signingCourse) {
             this.toast('签到中，请稍候...');
             return;
         }
         
+        const courseData = card._courseData;
+        if (!courseData) return;
+        
+        const courseName = courseData.courseName || '未知课程';
+        const courseId = courseData.id;
+        const courseSchedIds = courseData.courseSchedIds || [courseId];
+        
         this._signingCourse = courseName;
         this.pushLog(`正在签到: ${courseName}...`);
         
-        if (!this._courseCache) {
-            this.toast('请先加载课表');
-            this._signingCourse = null;
-            return;
-        }
-        
-        let targetCourse = null;
-        for (const dayKey of Object.keys(this._courseCache)) {
-            const dayData = this._courseCache[dayKey];
-            for (const course of dayData.courses) {
-                const name = course.courseName || '';
-                if (name.includes(courseName.replace(/…$/, ''))) {
-                    targetCourse = course;
-                    break;
-                }
-            }
-            if (targetCourse) break;
-        }
-        
-        if (!targetCourse) {
-            this.toast('未找到课程，请刷新后重试');
-            this._signingCourse = null;
-            return;
-        }
-        
-        const ids = targetCourse.courseSchedIds || [targetCourse.id];
-        const names = [courseName];
-        
-        window.pywebview.api.sign_course(JSON.stringify(ids), JSON.stringify(names))
+        // 调用后端签到
+        window.pywebview.api.sign_course(JSON.stringify(courseSchedIds), JSON.stringify([courseName]))
             .then(result => {
                 this._signingCourse = null;
                 if (result.success > 0) {
-                    this.toast(`签到成功`);
+                    // 签到成功，无感更新卡片状态
+                    this._updateCardSigned(card, true);
+                    this.toast('签到成功');
                 } else if (result.skipped > 0) {
-                    this.toast(`已签到`);
+                    this._updateCardSigned(card, true);
+                    this.toast('已签到');
                 } else {
-                    this.toast(`签到失败，请稍后重试`);
-                    return;
+                    this.toast('签到失败，请稍后重试');
                 }
-                // 延迟刷新以确保后端数据已更新
-                setTimeout(() => this.loadWeek(), 500);
             })
             .catch(e => {
                 this._signingCourse = null;
-                this.toast(`签到失败，请稍后重试`);
+                this.toast('签到失败，请稍后重试');
             });
+    },
+    
+    _updateCardSigned(card, isSigned) {
+        const d = DICT[this.lang];
+        
+        // 检查是否已经更新过，避免重复计数
+        const badge = card.querySelector('.sign-badge');
+        const wasAlreadySigned = badge && badge.classList.contains('signed');
+        
+        // 更新卡片样式
+        card.className = `course-card ${isSigned ? 'signed' : 'unsigned'}`;
+        
+        // 更新徽章
+        if (badge) {
+            badge.className = `sign-badge ${isSigned ? 'signed' : 'unsigned'}`;
+            badge.textContent = isSigned ? d.cardBadgeDone : d.cardBadgePending;
+        }
+        
+        // 更新按钮
+        const btn = card.querySelector('.btn-sign');
+        if (btn) {
+            btn.className = `btn-sign ${isSigned ? 'signed' : ''}`;
+            btn.disabled = isSigned;
+            btn.textContent = isSigned ? d.cardDone : d.cardSign;
+        }
+        
+        // 更新课程数据缓存
+        const courseData = card._courseData;
+        if (courseData) {
+            courseData.signStatus = '1';
+        }
+        
+        // 只有从"未签到"变成"已签到"时才更新统计
+        if (isSigned && !wasAlreadySigned) {
+            const signedCount = parseInt(this.$('signedCourses').textContent) || 0;
+            const totalCount = parseInt(this.$('totalCourses').textContent) || 0;
+            this.$('signedCourses').textContent = Math.min(signedCount + 1, totalCount);
+        }
     },
 
     batchSign() {
-        // 防止重复点击
         if (this._signingCourse) {
             this.toast('签到中，请稍候...');
             return;
@@ -518,22 +536,48 @@ const app = {
                 this._signingCourse = null;
                 this.$('btnBatch').disabled = false;
                 
-                if (result.success > 0) {
-                    this.toast(`签到成功: ${result.success}`);
-                } else if (result.skipped > 0 && result.total > 0) {
-                    this.toast(`已全部签到`);
+                if (result.success > 0 || result.skipped > 0) {
+                    // 根据结果更新 UI
+                    this._refreshCardsByResult(result.results || []);
+                    const msg = result.success > 0 
+                        ? `签到成功: ${result.success}`
+                        : (result.total === 0 ? `本周暂无待签到课程` : `已全部签到`);
+                    this.toast(msg);
                 } else if (result.total === 0) {
                     this.toast(`本周暂无待签到课程`);
                 } else {
                     this.toast(`签到完成`);
                 }
-                this.loadWeek();
             })
             .catch(e => {
                 this._signingCourse = null;
                 this.$('btnBatch').disabled = false;
                 this.toast(`签到失败，请稍后重试`);
             });
+    },
+    
+    _refreshCardsByResult(results) {
+        // 根据签到结果更新卡片 - 使用 ID 匹配
+        const cards = document.querySelectorAll('.course-card');
+        let updatedCount = 0;
+        
+        for (const res of results) {
+            if (res.status === 'success' || res.status === 'skipped') {
+                const courseId = res.id;
+                // 找到对应的卡片
+                for (const card of cards) {
+                    const courseData = card._courseData;
+                    if (courseData && (courseData.id === courseId || (courseData.courseSchedIds && courseData.courseSchedIds.includes(courseId)))) {
+                        const badge = card.querySelector('.sign-badge');
+                        if (badge && !badge.classList.contains('signed')) {
+                            this._updateCardSigned(card, true);
+                            updatedCount++;
+                        }
+                        break;
+                    }
+                }
+            }
+        }
     }
 };
 

@@ -87,6 +87,9 @@ def merge_courses(courses):
             mc = dict(c)
             mc["teachers"] = [c.get("teacherName", "未知")]
             mc["courseSchedIds"] = [c.get("id", "")]
+            # 如果当前课程已签到，合并后也标记为已签到
+            if str(c.get("signStatus", "")) == "1":
+                mc["signStatus"] = "1"
             merged[key] = mc
         else:
             existing = merged[key]
@@ -94,6 +97,9 @@ def merge_courses(courses):
             if t not in existing["teachers"]:
                 existing["teachers"].append(t)
             existing["courseSchedIds"].append(c.get("id", ""))
+            # 如果任一课程已签到，合并后标记为已签到
+            if str(c.get("signStatus", "")) == "1":
+                existing["signStatus"] = "1"
     return list(merged.values())
 
 
@@ -261,6 +267,7 @@ class Api:
             self._vpn_sso_login(vpn_username, vpn_password)
             self.use_vpn = True
             self._urls = get_network_urls(True)
+            # 如果没有提供学号，使用 VPN 账号作为学号
             target_id = student_id.strip() if student_id and student_id.strip() else vpn_username
             return self._do_login(target_id)
         except Exception as e:
@@ -356,7 +363,7 @@ class Api:
 
             self.session.headers.update({"sessionId": self.sessionId})
             name_display = f" ({self.userName})" if self.userName else ""
-            self._log(f"登录成功 (UID: {self.userId}{name_display})", "success")
+            self._log(f"登录成功 (UID: {self.userId})", "success")
             return {"success": True, "userId": self.userId, "userName": self.userName}
         except Exception as e:
             self._log(f"登录异常: {str(e)}", "error")
@@ -540,7 +547,6 @@ class Api:
                         if data and data.get("STATUS") == "0"
                         else []
                     )
-                    self._week_cache[idx] = raw
                     
                     # 处理课程数据，确保 signStatus 正确
                     processed = []
@@ -562,6 +568,8 @@ class Api:
                         })
                     
                     merged = merge_courses(processed)
+                    # 缓存也存储处理后的数据，供 batch_sign_week 使用
+                    self._week_cache[idx] = merged
                     result[str(idx)] = {
                         "date": week_dates[idx].strftime("%m-%d"),
                         "weekday": ["周一", "周二", "周三", "周四", "周五", "周六", "周日"][idx],
@@ -637,14 +645,16 @@ class Api:
                 if res.status_code == 200:
                     try:
                         resp_data = res.json()
-                        status = resp_data.get("STATUS", "")
+                        # 处理 STATUS 可能是数字或字符串
+                        status_raw = resp_data.get("STATUS", resp_data.get("status", ""))
+                        status = str(status_raw)
                         
                         if status == "0":
                             success += 1
                             results.append({"id": cid, "name": display_name, "status": "success"})
                             self._log(f"{display_name} 签到成功", "success")
                         else:
-                            err_msg = resp_data.get("ERRMSG", resp_data.get("ERRORMSG", ""))
+                            err_msg = str(resp_data.get("ERRMSG", resp_data.get("ERRORMSG", "")))
                             if "已签到" in err_msg:
                                 skipped += 1
                                 results.append({"id": cid, "name": display_name, "status": "skipped"})
@@ -655,7 +665,7 @@ class Api:
                                 self._log(f"{display_name} 签到失败", "warning")
                     except json.JSONDecodeError:
                         text = res.text
-                        if "成功" in text or "SUCCESS" in text:
+                        if "成功" in text or "SUCCESS" in text or "status" in text.lower():
                             success += 1
                             results.append({"id": cid, "name": display_name, "status": "success"})
                             self._log(f"{display_name} 签到成功", "success")
@@ -709,7 +719,20 @@ class Api:
             return {"success": 0, "total": 0, "skipped": 0}
 
         self._log(f"正在批量签到 {len(all_ids)} 门课程...")
-        return self.sign_course(all_ids, all_names)
+        result = self.sign_course(all_ids, all_names)
+        
+        # 签到成功后更新本地缓存
+        if result.get("success", 0) > 0:
+            for res_item in result.get("results", []):
+                if res_item.get("status") == "success":
+                    cid = res_item.get("id", "")
+                    for day_courses in self._week_cache.values():
+                        for c in day_courses:
+                            if c.get("id") == cid:
+                                c["signStatus"] = "1"
+                                break
+        
+        return result
 
     def get_current_week(self, year, month, day):
         """根据学期起始日计算当前周数"""
