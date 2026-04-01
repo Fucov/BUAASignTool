@@ -97,6 +97,8 @@ const app = {
     mode: 'direct',
     logOpen: false,
     lang: 'zh',
+    _courseCache: null,
+    _signingCourse: null,
 
     $(id) { return document.getElementById(id); },
 
@@ -340,9 +342,10 @@ const app = {
         const sem = this.getSemester();
         try {
             const data = await window.pywebview.api.get_week_courses(this.currentWeek, sem.year, sem.month, sem.day);
+            this._courseCache = data;  // 缓存数据
             this.renderSchedule(data);
         } catch (e) {
-            this.pushLog(`${DICT[this.lang].msgLoadFail} ${e}`, 'error');
+            this.pushLog(`加载失败，请检查网络`, 'error');
         }
         this.showLoading(false);
     },
@@ -399,6 +402,8 @@ const app = {
         const card = document.createElement('div');
         const isSigned = String(course.signStatus) === '1';
         card.className = `course-card ${isSigned ? 'signed' : 'unsigned'}`;
+        // 存储课程数据供签到使用
+        card._courseData = course;
 
         const name = course.courseName || 'Class';
         const begin = (course.classBeginTime || '').slice(11, 16);
@@ -439,83 +444,95 @@ const app = {
     // 签到操作
     // ==========================================
     signCourse(courseName) {
+        // 防止重复点击
+        if (this._signingCourse) {
+            this.toast('签到中，请稍候...');
+            return;
+        }
+        
+        this._signingCourse = courseName;
         this.pushLog(`正在签到: ${courseName}...`);
         
-        // 找到对应的课程信息
-        const grid = this.$('scheduleGrid');
-        const cards = grid.querySelectorAll('.course-card');
-        let targetCard = null;
+        if (!this._courseCache) {
+            this.toast('请先加载课表');
+            this._signingCourse = null;
+            return;
+        }
         
-        for (const card of cards) {
-            const nameEl = card.querySelector('.course-name');
-            if (nameEl && nameEl.textContent.includes(courseName.replace(/…$/, ''))) {
-                targetCard = card;
-                break;
+        let targetCourse = null;
+        for (const dayKey of Object.keys(this._courseCache)) {
+            const dayData = this._courseCache[dayKey];
+            for (const course of dayData.courses) {
+                const name = course.courseName || '';
+                if (name.includes(courseName.replace(/…$/, ''))) {
+                    targetCourse = course;
+                    break;
+                }
             }
+            if (targetCourse) break;
         }
         
-        if (!targetCard) {
-            this.toast('未找到课程');
+        if (!targetCourse) {
+            this.toast('未找到课程，请刷新后重试');
+            this._signingCourse = null;
             return;
         }
         
-        // 获取课程数据
-        const courseData = targetCard._courseData;
-        if (!courseData) {
-            this.toast('课程数据无效');
-            return;
-        }
-        
-        const ids = courseData.courseSchedIds || [courseData.id];
+        const ids = targetCourse.courseSchedIds || [targetCourse.id];
         const names = [courseName];
         
-        // 调用后端签到
         window.pywebview.api.sign_course(JSON.stringify(ids), JSON.stringify(names))
             .then(result => {
+                this._signingCourse = null;
                 if (result.success > 0) {
-                    this.toast(`${courseName} 签到成功`);
-                    // 立即更新该卡片的显示状态
-                    this.updateCardSignState(targetCard, true);
+                    this.toast(`签到成功`);
+                } else if (result.skipped > 0) {
+                    this.toast(`已签到`);
                 } else {
-                    this.toast(this.lang === 'zh' ? '签到失败' : 'Sign failed');
+                    this.toast(`签到失败，请稍后重试`);
+                    return;
                 }
+                // 延迟刷新以确保后端数据已更新
+                setTimeout(() => this.loadWeek(), 500);
             })
             .catch(e => {
-                this.pushLog(`异常: ${e}`, 'error');
+                this._signingCourse = null;
+                this.toast(`签到失败，请稍后重试`);
             });
-    },
-    
-    updateCardSignState(card, isSigned) {
-        const d = DICT[this.lang];
-        card.className = `course-card ${isSigned ? 'signed' : 'unsigned'}`;
-        const badge = card.querySelector('.sign-badge');
-        if (badge) {
-            badge.className = `sign-badge ${isSigned ? 'signed' : 'unsigned'}`;
-            badge.textContent = isSigned ? d.cardBadgeDone : d.cardBadgePending;
-        }
-        const btn = card.querySelector('.btn-sign');
-        if (btn) {
-            btn.className = `btn-sign ${isSigned ? 'signed' : ''}`;
-            btn.disabled = isSigned;
-            btn.textContent = isSigned ? d.cardDone : d.cardSign;
-        }
-        
-        // 更新统计
-        const currentSigned = parseInt(this.$('signedCourses').textContent) || 0;
-        this.$('signedCourses').textContent = currentSigned + (isSigned ? 1 : 0);
     },
 
     batchSign() {
+        // 防止重复点击
+        if (this._signingCourse) {
+            this.toast('签到中，请稍候...');
+            return;
+        }
+        
+        this._signingCourse = 'batch';
+        this.pushLog(`一键签到中，请稍候...`);
+        this.$('btnBatch').disabled = true;
+        
         const sem = this.getSemester();
-        this.pushLog(`${DICT[this.lang].msgBatchLaunch} (W${this.currentWeek})...`);
         window.pywebview.api.batch_sign_week(this.currentWeek, sem.year, sem.month, sem.day)
             .then(result => {
-                this.toast(`批量签到: ${result.success}/${result.total} 成功`);
-                // 刷新课表以更新状态
+                this._signingCourse = null;
+                this.$('btnBatch').disabled = false;
+                
+                if (result.success > 0) {
+                    this.toast(`签到成功: ${result.success}`);
+                } else if (result.skipped > 0 && result.total > 0) {
+                    this.toast(`已全部签到`);
+                } else if (result.total === 0) {
+                    this.toast(`本周暂无待签到课程`);
+                } else {
+                    this.toast(`签到完成`);
+                }
                 this.loadWeek();
             })
             .catch(e => {
-                this.pushLog(`异常: ${e}`, 'error');
+                this._signingCourse = null;
+                this.$('btnBatch').disabled = false;
+                this.toast(`签到失败，请稍后重试`);
             });
     }
 };
