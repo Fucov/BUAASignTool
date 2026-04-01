@@ -364,7 +364,7 @@ class Api:
             self.session.headers.update({"sessionId": self.sessionId})
             name_display = f" ({self.userName})" if self.userName else ""
             self._log(f"登录成功 (UID: {self.userId})", "success")
-            return {"success": True, "userId": self.userId, "userName": self.userName}
+            return {"success": True, "userId": self.userId}
         except Exception as e:
             self._log(f"登录异常: {str(e)}", "error")
             return {"success": False, "error": str(e)}
