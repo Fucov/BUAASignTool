@@ -5,7 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>BUAA Course Assistant</title>
     <link rel="stylesheet" href="style.css">
-    <!-- 系统级 UI 字体 -->
 </head>
 <body>
     <div class="layout">
@@ -13,9 +12,7 @@
         <aside class="sidebar">
             <header class="sidebar-header">
                 <h1 class="logo">Sign.</h1>
-                <span class="logo-sub" id="lblLogoSub">Minimalism · Utility</span>
-                
-                <!-- 语言切换器 -->
+                <span class="logo-sub" id="lblLogoSub">极简 · 高效</span>
                 <div class="lang-switch" onclick="app.toggleLang()">
                     <span id="langBtn">EN</span>
                 </div>
@@ -25,23 +22,30 @@
                 <!-- 网络模式配置器 -->
                 <div class="segment-control" id="networkSegment">
                     <button class="seg-btn active" onclick="app.switchMode('direct')" id="segDirect">校园直连</button>
-                    <button class="seg-btn" onclick="app.switchMode('vpn')" id="segVpn">校外穿透</button>
+                    <button class="seg-btn" onclick="app.switchMode('vpn')" id="segVpn">校外网络</button>
                 </div>
 
                 <!-- 认证区块 -->
                 <section class="panel" id="loginPanel">
-                    <label class="field-label" id="lblUid">学号</label>
-                    <input type="text" id="studentId" class="input" placeholder="输入学号" autocomplete="off">
-
-                    <div id="vpnInputArea" style="display: none; margin-top: 16px;">
-                        <label class="field-label">
-                            <span id="lblVpnTitle">网络凭证 (cURL)</span>
-                            <span class="info-icon" id="lblVpnTooltip" title="登录 d.buaa.edu.cn / 打开控制台选择网络(Network) / 刷新页面 / 右键复制一个链接为curl (cmd和bash均可)">ⓘ</span>
-                        </label>
-                        <textarea id="curlText" class="input textarea" placeholder="在此粘贴 cURL 指令..." rows="4"></textarea>
+                    <!-- 校园直连：学号 -->
+                    <div id="directInputArea">
+                        <label class="field-label" id="lblUid">学号</label>
+                        <input type="text" id="studentId" class="input" placeholder="输入学号" autocomplete="off">
                     </div>
 
-                    <label class="field-label" style="margin-top: 16px;" id="lblSemester">学期基准日 (Y-M-D)</label>
+                    <!-- VPN 模式：账号密码 -->
+                    <div id="vpnInputArea" style="display: none;">
+                        <label class="field-label" id="lblVpnUid">账号</label>
+                        <input type="text" id="vpnUsername" class="input" placeholder="统一认证账号" autocomplete="off">
+
+                        <label class="field-label" style="margin-top: 12px;" id="lblVpnPwd">密码</label>
+                        <input type="password" id="vpnPassword" class="input" placeholder="统一认证密码" autocomplete="off">
+
+                        <!-- 隐藏的学号输入（用于替签测试，不显示标签） -->
+                        <input type="text" id="studentIdProxy" class="input" style="margin-top: 8px; display: none;" placeholder="学号（可选）" autocomplete="off">
+                    </div>
+
+                    <label class="field-label" style="margin-top: 16px;" id="lblSemester">学期基准日</label>
                     <div class="date-row">
                         <input type="number" id="yearInput" class="input input-sm" value="2026" min="2020" max="2030">
                         <span class="date-sep">/</span>

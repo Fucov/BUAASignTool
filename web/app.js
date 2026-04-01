@@ -9,21 +9,24 @@ const DICT = {
         segVpn: '校外网络',
         lblUid: '学号',
         phUid: '输入学号',
-        lblVpnTitle: '网络凭证 (cURL)',
-        phCurl: '在此粘贴 cURL 指令...',
-        lblSemester: '学期第一周 (年-月-日)',
+        lblVpnUid: '账号',
+        phVpnUid: '统一认证账号',
+        lblVpnPwd: '密码',
+        phVpnPwd: '统一认证密码',
+        lblStudentId: '学号',
+        phStudentId: '输入学号',
+        lblSemester: '学期基准日',
         btnLoginDirect: '登 录',
-        btnLoginVpn: '解析并登录',
+        btnLoginVpn: 'VPN 登录',
         btnLogout: '退出登录',
         lblTimeCtrl: '时间控制',
         btnReset: '本周',
         btnReload: '刷新',
-        btnBatch: '一键打卡',
+        btnBatch: '一键签到',
         lblStatBlocks: '排课数',
         lblStatDone: '已签到',
         lblWelcomeTitle: 'BUAA 课程助手',
         lblWelcomeSub: '请在左侧登录',
-        tooltip: '登录 d.buaa.edu.cn / 打开控制台选择网络(Network) / 刷新页面 / 右键复制一个链接为curl (cmd和bash均可)',
         weekPrefix: '第 ',
         weekSuffix: ' 周',
         wkDays: ['周一', '周二', '周三', '周四', '周五', '周六', '周日'],
@@ -32,9 +35,7 @@ const DICT = {
         cardDone: '已完成',
         cardBadgePending: '未签',
         cardBadgeDone: '已签',
-
-        statBlocks: (total, done) => `${total} 节课 / 已签 ${done}`,
-        // 日志文案
+        statBlocks: (total, done) => `${total} 节 / 已签 ${done}`,
         msgSysReady: '就绪。',
         msgLoginIssue: '正在登录...',
         msgLoginOk: '登录成功。',
@@ -42,18 +43,24 @@ const DICT = {
         msgLoadFail: '加载失败:',
         msgBatchLaunch: '正在批量签到...',
         msgSignLaunch: '正在签到:',
+        errNoStudentId: '请输入学号',
+        errNoVpnCreds: '请输入账号和密码',
     },
     'en': {
         logoSub: 'Minimalism · Utility',
-        segDirect: 'Direct Connection',
-        segVpn: 'WebVPN Tunnel',
+        segDirect: 'Direct',
+        segVpn: 'WebVPN',
         lblUid: 'Student ID',
         phUid: 'Enter ID',
-        lblVpnTitle: 'Auth Token (cURL)',
-        phCurl: 'Paste cURL here...',
-        lblSemester: 'Semester Start (Y-M-D)',
+        lblVpnUid: 'Username',
+        phVpnUid: 'SSO Username',
+        lblVpnPwd: 'Password',
+        phVpnPwd: 'SSO Password',
+        lblStudentId: 'Student ID',
+        phStudentId: 'Enter ID',
+        lblSemester: 'Semester Start',
         btnLoginDirect: 'Sign In',
-        btnLoginVpn: 'Parse & Connect',
+        btnLoginVpn: 'VPN Login',
         btnLogout: 'Sign Out',
         lblTimeCtrl: 'Time Frame',
         btnReset: 'Current',
@@ -62,8 +69,7 @@ const DICT = {
         lblStatBlocks: 'Blocks',
         lblStatDone: 'Signed',
         lblWelcomeTitle: 'BUAA Sign Tool',
-        lblWelcomeSub: 'Please sign in to continue',
-        tooltip: 'Login to d.buaa.edu.cn / Open DevTools (Network) / Refresh / Right-click a request to copy as cURL (bash & cmd both supported)',
+        lblWelcomeSub: 'Please sign in',
         weekPrefix: 'Week ',
         weekSuffix: '',
         wkDays: ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'],
@@ -72,8 +78,7 @@ const DICT = {
         cardDone: 'DONE',
         cardBadgePending: 'PENDING',
         cardBadgeDone: 'SIGNED',
-
-        statBlocks: (total, done) => `${total} classes / ${done} signed`,
+        statBlocks: (total, done) => `${total} / ${done} signed`,
         msgSysReady: 'Ready.',
         msgLoginIssue: 'Signing in...',
         msgLoginOk: 'Signed in.',
@@ -81,6 +86,8 @@ const DICT = {
         msgLoadFail: 'Load failed:',
         msgBatchLaunch: 'Batch signing...',
         msgSignLaunch: 'Signing:',
+        errNoStudentId: 'Student ID required',
+        errNoVpnCreds: 'Username and password required',
     }
 };
 
@@ -89,7 +96,7 @@ const app = {
     isLoggedIn: false,
     mode: 'direct',
     logOpen: false,
-    lang: 'zh', // 'zh' or 'en'
+    lang: 'zh',
 
     $(id) { return document.getElementById(id); },
 
@@ -102,7 +109,7 @@ const app = {
         this.applyLanguage();
         if (this.isLoggedIn) {
             this.updateWeekDisplay();
-            this.loadWeek(); // Reload grid with new lang
+            this.loadWeek();
         }
     },
 
@@ -113,8 +120,12 @@ const app = {
         this.$('segVpn').textContent = d.segVpn;
         this.$('lblUid').textContent = d.lblUid;
         this.$('studentId').placeholder = d.phUid;
-        this.$('lblVpnTitle').textContent = d.lblVpnTitle;
-        this.$('curlText').placeholder = d.phCurl;
+        this.$('lblVpnUid').textContent = d.lblVpnUid;
+        this.$('vpnUsername').placeholder = d.phVpnUid;
+        this.$('lblVpnPwd').textContent = d.lblVpnPwd;
+        this.$('vpnPassword').placeholder = d.phVpnPwd;
+        this.$('lblStudentId').textContent = d.lblStudentId;
+        this.$('studentIdProxy').placeholder = d.phStudentId;
         this.$('lblSemester').textContent = d.lblSemester;
         this.$('btnLogout').textContent = d.btnLogout;
         this.$('lblTimeCtrl').textContent = d.lblTimeCtrl;
@@ -125,9 +136,7 @@ const app = {
         this.$('lblStatDone').textContent = d.lblStatDone;
         this.$('lblWelcomeTitle').textContent = d.lblWelcomeTitle;
         this.$('lblWelcomeSub').textContent = d.lblWelcomeSub;
-        if (this.$('lblVpnTooltip')) this.$('lblVpnTooltip').title = d.tooltip;
 
-        // Update login button immediately as well
         if (!this.isLoggedIn) {
             this.$('loginBtn').textContent = this.mode === 'vpn' ? d.btnLoginVpn : d.btnLoginDirect;
         } else {
@@ -142,7 +151,15 @@ const app = {
         this.$('segDirect').className = `seg-btn ${modeTarget === 'direct' ? 'active' : ''}`;
         this.$('segVpn').className = `seg-btn ${modeTarget === 'vpn' ? 'active' : ''}`;
 
-        this.$('vpnInputArea').style.display = modeTarget === 'vpn' ? 'block' : 'none';
+        // 切换显示对应的输入区域
+        if (modeTarget === 'vpn') {
+            this.$('directInputArea').style.display = 'none';
+            this.$('vpnInputArea').style.display = 'block';
+        } else {
+            this.$('directInputArea').style.display = 'block';
+            this.$('vpnInputArea').style.display = 'none';
+        }
+
         this.$('loginBtn').textContent = modeTarget === 'vpn' ? DICT[this.lang].btnLoginVpn : DICT[this.lang].btnLoginDirect;
     },
 
@@ -177,7 +194,6 @@ const app = {
         const entry = document.createElement('div');
         entry.className = 'log-entry';
         entry.innerHTML = `<span class="log-time">${time}</span><span class="log-msg ${type}">${msg}</span>`;
-        // 最新日志置顶
         body.prepend(entry);
         body.scrollTop = 0;
     },
@@ -209,15 +225,6 @@ const app = {
     // ==========================================
     async login() {
         const d = DICT[this.lang];
-        const studentId = this.$('studentId').value.trim();
-        if (!studentId) return this.toast(this.lang === 'zh' ? '请输入学号' : 'Student ID required');
-
-        let curlText = '';
-        if (this.mode === 'vpn') {
-            curlText = this.$('curlText').value.trim();
-            if (!curlText) return this.toast(this.lang === 'zh' ? '请粘贴 cURL' : 'cURL required');
-        }
-
         const btn = this.$('loginBtn');
         const status = this.$('loginStatus');
         btn.disabled = true;
@@ -227,21 +234,45 @@ const app = {
 
         try {
             let result;
+
             if (this.mode === 'vpn') {
-                result = await window.pywebview.api.login_vpn(studentId, curlText);
+                const vpnUsername = this.$('vpnUsername').value.trim();
+                const vpnPassword = this.$('vpnPassword').value;
+                const studentIdProxy = this.$('studentIdProxy').value.trim();
+                
+                if (!vpnUsername || !vpnPassword) {
+                    status.textContent = d.errNoVpnCreds;
+                    btn.disabled = false;
+                    btn.textContent = d.btnLoginVpn;
+                    this.toast(d.errNoVpnCreds);
+                    return;
+                }
+                // 传入可选的学号参数
+                result = await window.pywebview.api.login_vpn(vpnUsername, vpnPassword, studentIdProxy || null);
             } else {
+                const studentId = this.$('studentId').value.trim();
+                if (!studentId) {
+                    status.textContent = d.errNoStudentId;
+                    btn.disabled = false;
+                    btn.textContent = d.btnLoginDirect;
+                    this.toast(d.errNoStudentId);
+                    return;
+                }
                 result = await window.pywebview.api.login_direct(studentId);
             }
 
             if (result.success) {
                 this.isLoggedIn = true;
-                status.textContent = `UID: ${result.userId} (Online)`;
-                this.pushLog(`${d.msgLoginOk} (${result.userId})`, 'success');
+                const nameDisplay = result.userName ? ` (${result.userName})` : '';
+                status.textContent = `UID: ${result.userId}${nameDisplay}`;
+                this.pushLog(`${d.msgLoginOk} (${result.userId}${nameDisplay})`, 'success');
 
                 btn.style.display = 'none';
                 this.$('logoutBtn').style.display = 'block';
                 this.$('studentId').disabled = true;
-                this.$('curlText').disabled = true;
+                this.$('vpnUsername').disabled = true;
+                this.$('vpnPassword').disabled = true;
+                this.$('studentIdProxy').disabled = true;
                 ['yearInput', 'monthInput', 'dayInput', 'segDirect', 'segVpn'].forEach(i => this.$(i).disabled = true);
 
                 this.$('weekPanel').style.display = 'block';
@@ -272,7 +303,7 @@ const app = {
         btn.textContent = this.mode === 'vpn' ? d.btnLoginVpn : d.btnLoginDirect;
 
         this.$('logoutBtn').style.display = 'none';
-        ['studentId', 'curlText', 'yearInput', 'monthInput', 'dayInput', 'segDirect', 'segVpn'].forEach(i => this.$(i).disabled = false);
+        ['studentId', 'vpnUsername', 'vpnPassword', 'studentIdProxy', 'yearInput', 'monthInput', 'dayInput', 'segDirect', 'segVpn'].forEach(i => this.$(i).disabled = false);
         this.$('loginStatus').textContent = '';
 
         this.$('weekPanel').style.display = 'none';
@@ -382,8 +413,10 @@ const app = {
         const teachers = course.teachers || [];
         let teacherText = teachers.length === 1 ? teachers[0] : teachers.join(' & ');
 
-        const ids = JSON.stringify(course.courseSchedIds || [course.id]).replace(/"/g, '&quot;');
-        const escapedName = name.replace(/'/g, "\\'");
+        // 课程签到按钮
+        const btnHtml = isSigned 
+            ? `<button class="btn-sign signed" disabled>${d.cardDone}</button>`
+            : `<button class="btn-sign" onclick="app.signCourse('${name}')">${d.cardSign}</button>`;
 
         card.innerHTML = `
             <div class="card-header">
@@ -396,10 +429,7 @@ const app = {
                 <span>${teacherText}</span>
             </div>
             <div class="card-action">
-                <button class="btn-sign ${isSigned ? 'signed' : ''}"
-                        onclick="${isSigned ? '' : `app.signCourse(${ids}, '${escapedName}')`}">
-                    ${isSigned ? d.cardDone : d.cardSign}
-                </button>
+                ${btnHtml}
             </div>
         `;
         return card;
@@ -408,31 +438,85 @@ const app = {
     // ==========================================
     // 签到操作
     // ==========================================
-    async signCourse(ids, name) {
-        this.pushLog(`${DICT[this.lang].msgSignLaunch} ${name}...`);
-        try {
-            const result = await window.pywebview.api.sign_course(JSON.stringify(ids));
-            if (result.success > 0) {
-                this.toast(`${name} 签到成功`);
-                this.loadWeek();
-            } else {
-                this.toast(this.lang === 'zh' ? '签到失败' : 'Sign failed');
+    signCourse(courseName) {
+        this.pushLog(`正在签到: ${courseName}...`);
+        
+        // 找到对应的课程信息
+        const grid = this.$('scheduleGrid');
+        const cards = grid.querySelectorAll('.course-card');
+        let targetCard = null;
+        
+        for (const card of cards) {
+            const nameEl = card.querySelector('.course-name');
+            if (nameEl && nameEl.textContent.includes(courseName.replace(/…$/, ''))) {
+                targetCard = card;
+                break;
             }
-        } catch (e) {
-            this.pushLog(`异常: ${e}`, 'error');
         }
+        
+        if (!targetCard) {
+            this.toast('未找到课程');
+            return;
+        }
+        
+        // 获取课程数据
+        const courseData = targetCard._courseData;
+        if (!courseData) {
+            this.toast('课程数据无效');
+            return;
+        }
+        
+        const ids = courseData.courseSchedIds || [courseData.id];
+        const names = [courseName];
+        
+        // 调用后端签到
+        window.pywebview.api.sign_course(JSON.stringify(ids), JSON.stringify(names))
+            .then(result => {
+                if (result.success > 0) {
+                    this.toast(`${courseName} 签到成功`);
+                    // 立即更新该卡片的显示状态
+                    this.updateCardSignState(targetCard, true);
+                } else {
+                    this.toast(this.lang === 'zh' ? '签到失败' : 'Sign failed');
+                }
+            })
+            .catch(e => {
+                this.pushLog(`异常: ${e}`, 'error');
+            });
+    },
+    
+    updateCardSignState(card, isSigned) {
+        const d = DICT[this.lang];
+        card.className = `course-card ${isSigned ? 'signed' : 'unsigned'}`;
+        const badge = card.querySelector('.sign-badge');
+        if (badge) {
+            badge.className = `sign-badge ${isSigned ? 'signed' : 'unsigned'}`;
+            badge.textContent = isSigned ? d.cardBadgeDone : d.cardBadgePending;
+        }
+        const btn = card.querySelector('.btn-sign');
+        if (btn) {
+            btn.className = `btn-sign ${isSigned ? 'signed' : ''}`;
+            btn.disabled = isSigned;
+            btn.textContent = isSigned ? d.cardDone : d.cardSign;
+        }
+        
+        // 更新统计
+        const currentSigned = parseInt(this.$('signedCourses').textContent) || 0;
+        this.$('signedCourses').textContent = currentSigned + (isSigned ? 1 : 0);
     },
 
-    async batchSign() {
+    batchSign() {
         const sem = this.getSemester();
         this.pushLog(`${DICT[this.lang].msgBatchLaunch} (W${this.currentWeek})...`);
-        try {
-            const result = await window.pywebview.api.batch_sign_week(this.currentWeek, sem.year, sem.month, sem.day);
-            this.toast(`批量签到: ${result.success}/${result.total} 成功`);
-            this.loadWeek();
-        } catch (e) {
-            this.pushLog(`异常: ${e}`, 'error');
-        }
+        window.pywebview.api.batch_sign_week(this.currentWeek, sem.year, sem.month, sem.day)
+            .then(result => {
+                this.toast(`批量签到: ${result.success}/${result.total} 成功`);
+                // 刷新课表以更新状态
+                this.loadWeek();
+            })
+            .catch(e => {
+                this.pushLog(`异常: ${e}`, 'error');
+            });
     }
 };
 
@@ -442,6 +526,9 @@ window.addEventListener('pywebviewready', () => {
     app.applyLanguage();
     app.pushLog(DICT[app.lang].msgSysReady);
     app.$('studentId').addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') app.login();
+    });
+    app.$('vpnPassword').addEventListener('keydown', (e) => {
         if (e.key === 'Enter') app.login();
     });
 });

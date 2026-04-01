@@ -3,7 +3,7 @@
 支持校内直连与校外 WebVPN 两种网络模式。
 基于 pywebview + 原生前端的单体桌面应用。
 
-支持双端口兜底机制：优先使用 8347 端口，失败时自动回退到 8346 端口。
+支持双端口兜底机制和 SSO VPN 登录。
 """
 
 import os
@@ -16,11 +16,12 @@ from concurrent.futures import ThreadPoolExecutor
 import requests
 import urllib3
 import webview
+from bs4 import BeautifulSoup
 
 try:
     from Crypto.Cipher import AES
 except ImportError:
-    pass  # 如需 WebVPN 功能，请安装 pycryptodome
+    pass
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 os.environ["http_proxy"] = os.environ["https_proxy"] = ""
@@ -30,28 +31,26 @@ os.environ["http_proxy"] = os.environ["https_proxy"] = ""
 # 常量定义
 # ==========================================
 
-# API 端口配置 - 8347 为新端口，8346 为旧端口兜底
 PRIMARY_PORT = "8347"
 FALLBACK_PORT = "8346"
-
-# 签到端口配置
 PRIMARY_SIGN_PORT = "8081"
-FALLBACK_SIGN_PORT = "8081"  # 签到端口保持不变
 
-# API 路径配置
+# SSO 登录地址
+SSO_LOGIN_URL = "https://d.buaa.edu.cn/https/77726476706e69737468656265737421e3e44ed225256951300d8db9d6562d/login"
+SSO_SERVICE_PARAM = "service=https%3A%2F%2Fd.buaa.edu.cn%2Flogin%3Fcas_login%3Dtrue"
+
+# VPN 预加密服务 ID（iClass 服务的固定标识）
+VPN_SERVICE_ID = "77726476706e69737468656265737421f9f44d9d342326526b0988e29d51367ba018"
+
 API_PATHS = {
     "login": "/app/user/login.action",
     "course_schedule": "/app/course/get_stu_course_sched.action",
     "sign": "/app/course/stu_scan_sign.action",
-    # 新增：8347 专用端点
-    "semester_list": "/app/course/get_base_school_year.action",
-    "course_list": "/app/choosecourse/get_myall_course.action",
-    "course_detail": "/app/my/get_my_course_sign_detail.action",
 }
 
 
 def wengine_encrypt(text):
-    """AES-CFB128 加密，用于 WebVPN 模式下的 hostname 转换"""
+    """AES-CFB128 加密，用于 WebVPN hostname 转换"""
     key = iv = b"wrdvpnisthebest!"
     cipher = AES.new(key, AES.MODE_CFB, iv, segment_size=128)
     return key.hex() + cipher.encrypt(text.encode("utf-8")).hex()
@@ -82,52 +81,19 @@ def merge_courses(courses):
     return list(merged.values())
 
 
-def parse_buaa_curl(curl_text):
-    """
-    从 cURL 命令中提取 WebVPN 所需的 Cookie。
-    兼容 bash/zsh (反斜杠续行) 和 Windows Cmd (^ 续行) 两种格式。
-    """
-    # 清理跨平台续行符
-    clean_text = curl_text.replace("^", "")
-    clean_text = re.sub(r"\\\s*\n\s*", " ", clean_text)
-    clean_text = re.sub(r"\n\s*", " ", clean_text)
-
-    # 匹配 Cookie 头：-H 'Cookie: ...' 或 -b '...'
-    match = re.search(r'Cookie:\s*([^\'"]+)', clean_text, re.IGNORECASE)
-    if not match:
-        # 尝试 -b 格式
-        match = re.search(r'-b\s*[\'"]([^\'"]+)[\'"]', clean_text, re.IGNORECASE)
-
-    if match:
-        cookie_str = match.group(1)
-        # 筛选 VPN 相关的 Cookie 字段
-        targets = ["wengine_vpn_ticket", "_zte_cid", "route"]
-        parts = [p.strip() for p in cookie_str.split(";")]
-        filtered = [p for p in parts if any(target in p for target in targets)]
-
-        if filtered:
-            return True, "; ".join(filtered)
-        return (
-            False,
-            "解析失败：Cookie 中未找到 VPN 凭证 (_zte_cid_ / wengine_vpn_ticket)",
-        )
-
-    return False, "解析失败：cURL 中未找到 Cookie 字段"
-
-
-# 注意：不要在 js_api 类中持有 window 引用，否则 Windows 下会触发 Python.NET 递归崩溃
 _APP_CONTEXT = {}
 
 
 class Api:
-    """前端可调用的后端 API 接口，支持双端口兜底机制"""
+    """前端可调用的后端 API 接口"""
 
     def __init__(self):
         self.userId = None
         self.sessionId = None
+        self.userName = None
         self.use_vpn = False
         self.session = requests.Session()
-        self.session.trust_env = False  # 忽略系统代理
+        self.session.trust_env = False
 
         self.session.headers.update(
             {
@@ -140,6 +106,7 @@ class Api:
         self._week_cache = {}
         self._current_port = PRIMARY_PORT
         self._sign_port = PRIMARY_SIGN_PORT
+        self._course_names = {}
 
     def _log(self, msg, msg_type="info"):
         """将日志推送到前端界面"""
@@ -151,27 +118,28 @@ class Api:
             except Exception:
                 pass
 
-    def _get_vpn_url(self, host, port, path):
-        """构建 WebVPN 代理 URL"""
-        encrypted_host = wengine_encrypt(f"{host}:{port}")
-        return f"https://d.buaa.edu.cn/https-{port}/{encrypted_host}{path}"
+    def _get_vpn_url(self, path):
+        """构建 VPN 代理 URL（使用预加密的服务 ID）"""
+        return f"https://d.buaa.edu.cn/https-{PRIMARY_PORT}/{VPN_SERVICE_ID}{path}"
 
-    def _request(self, method, scheme, host, port, path, use_fallback=True, **kwargs):
-        """
-        统一的网络请求方法，支持双端口兜底机制。
+    def _get_direct_url(self, host, port, path):
+        """构建直连 URL"""
+        return f"https://{host}:{port}{path}"
 
-        Args:
-            method: HTTP 方法
-            scheme: http 或 https
-            host: 目标主机
-            port: 目标端口
-            path: 请求路径
-            use_fallback: 是否启用端口回退
-            **kwargs: 其他请求参数
+    def _is_iclass_url(self, url):
+        """检查 URL 是否是 iClass 相关"""
+        return "iclass.buaa.edu.cn" in url or "d.buaa.edu.cn/https-834" in url
 
-        Returns:
-            requests.Response 对象
-        """
+    def _is_vpn_portal_home(self, url):
+        """检查 URL 是否是 VPN 门户首页"""
+        try:
+            parsed = urllib3.util.parse_url(url)
+            return parsed.host == "d.buaa.edu.cn" and "/login" not in parsed.path
+        except Exception:
+            return False
+
+    def _request(self, method, host, port, path, use_fallback=True, **kwargs):
+        """统一的网络请求方法"""
         ports_to_try = [port]
         if use_fallback and port == PRIMARY_PORT:
             ports_to_try.append(FALLBACK_PORT)
@@ -179,11 +147,10 @@ class Api:
         last_error = None
         for try_port in ports_to_try:
             if self.use_vpn:
-                url = self._get_vpn_url(host, try_port, path)
+                url = self._get_vpn_url(path)
             else:
-                url = f"{scheme}://{host}:{try_port}{path}"
+                url = self._get_direct_url(host, try_port, path)
 
-            # 修正 Header 中的非 Latin-1 字符，防止请求异常
             for k, v in list(self.session.headers.items()):
                 try:
                     str(v).encode("latin-1")
@@ -203,11 +170,10 @@ class Api:
                     last_error = f"HTTP {status}"
                     continue
 
-                # 记录当前工作的端口
                 if try_port != self._current_port:
                     self._current_port = try_port
-                    # if use_fallback:
-                    #     self._log(f"切换到端口 {try_port}", "info")
+                    if use_fallback:
+                        self._log(f"切换到端口 {try_port}", "info")
 
                 return res
 
@@ -216,35 +182,118 @@ class Api:
                 self._log(f"连接失败 (端口 {try_port}): {last_error}", "warning")
                 continue
 
-        # 所有端口都失败
         self._log(f"连接失败: {path} - {last_error}", "error")
         raise requests.exceptions.RequestException(last_error)
+
+    def _fetch_execution_token(self):
+        """从 SSO 登录页面获取 execution 令牌"""
+        sso_url = f"{SSO_LOGIN_URL}?{SSO_SERVICE_PARAM}"
+        try:
+            response = self.session.get(sso_url, timeout=10, verify=False)
+            response.raise_for_status()
+
+            soup = BeautifulSoup(response.text, 'html.parser')
+            execution_input = soup.find('input', {'name': 'execution'})
+            if execution_input and execution_input.get('value'):
+                return execution_input['value']
+
+            match = re.search(r'name="execution"\s+value="([^"]+)"', response.text)
+            if match:
+                return match.group(1)
+
+            raise ValueError("无法从 SSO 页面解析 execution 参数")
+        except Exception as e:
+            self._log(f"获取 SSO 页面失败: {e}", "error")
+            raise
+
+    def _vpn_sso_login(self, username, password):
+        """
+        通过统一身份认证登录 WebVPN。
+        """
+        try:
+            self._log("正在连接 SSO 认证服务...")
+            execution = self._fetch_execution_token()
+            self._log("已获取认证令牌，正在登录...", "info")
+
+            sso_url = f"{SSO_LOGIN_URL}?{SSO_SERVICE_PARAM}"
+            response = self.session.post(
+                sso_url,
+                data={
+                    "username": username,
+                    "password": password,
+                    "submit": "登录",
+                    "type": "username_password",
+                    "execution": execution,
+                    "_eventId": "submit",
+                },
+                headers={"Referer": sso_url},
+                allow_redirects=True,
+                timeout=15,
+                verify=False,
+            )
+
+            final_url = response.url
+            self._log(f"SSO 响应 URL: {final_url}", "info")
+
+            if self._is_iclass_url(final_url):
+                self._log("VPN 登录成功 (直达 iClass)", "success")
+                return True
+
+            if self._is_vpn_portal_home(final_url):
+                self._log("已进入 VPN 门户，正在建立 iClass 隧道...")
+                probe_url = self._get_vpn_url("/")
+                probe_response = self.session.get(probe_url, timeout=10, verify=False)
+                probe_final_url = probe_response.url
+
+                if self._is_iclass_url(probe_final_url):
+                    self._log("VPN 隧道建立成功", "success")
+                    return True
+
+                self._log(f"探测响应 URL: {probe_final_url}", "info")
+                raise ValueError(f"建立 VPN 隧道失败")
+
+            if response.status_code == 401:
+                raise ValueError("账号或密码错误")
+
+            raise ValueError(f"登录失败，最终 URL: {final_url}")
+
+        except ValueError:
+            raise
+        except Exception as e:
+            self._log(f"VPN 登录异常: {e}", "error")
+            raise
 
     def login_direct(self, student_id):
         """校内直连登录"""
         self.use_vpn = False
         return self._do_login(student_id)
 
-    def login_vpn(self, student_id, curl_text):
-        """校外 WebVPN 登录"""
-        self._log("正在解析 cURL...")
-        success, cookie_data = parse_buaa_curl(curl_text)
-        if not success:
-            return {"success": False, "error": cookie_data}
+    def login_vpn(self, vpn_username, vpn_password, student_id=None):
+        """
+        校外 WebVPN 登录。
+        Args:
+            vpn_username: 统一身份认证账号
+            vpn_password: 统一身份认证密码
+            student_id: 可选，学号（用于替签功能）
+        """
+        self._log("正在解析 VPN 认证...")
+        if not vpn_username or not vpn_password:
+            return {"success": False, "error": "请输入账号和密码"}
 
-        # 移除 Cookie 中的非 ASCII 字符
-        clean_cookie = "".join(i for i in cookie_data if ord(i) < 128)
-        self.session.headers.update({"Cookie": clean_cookie})
-        self.use_vpn = True
-        self._log("Cookie 已提取，正在登录...", "success")
-        return self._do_login(student_id)
+        try:
+            self._vpn_sso_login(vpn_username, vpn_password)
+            self.use_vpn = True
+            # 使用传入的学号，如果没有则使用账号
+            target_id = student_id.strip() if student_id and student_id.strip() else vpn_username
+            return self._do_login(target_id)
+        except Exception as e:
+            return {"success": False, "error": str(e)}
 
     def _do_login(self, student_id):
-        """执行登录请求，优先使用 8347 端口，自动回退到 8346"""
+        """执行登录请求"""
         try:
             res = self._request(
                 "GET",
-                "https",
                 "iclass.buaa.edu.cn",
                 PRIMARY_PORT,
                 API_PATHS["login"],
@@ -266,12 +315,13 @@ class Api:
             result = data.get("result", data)
             self.userId = str(result.get("id", ""))
             self.sessionId = result.get("sessionId", "")
+            self.userName = result.get("realName", result.get("name", ""))
+            
             if not self.userId or not self.sessionId:
                 self._log("登录成功但获取用户信息不完整，尝试回退端口...", "warning")
                 try:
                     res = self._request(
                         "GET",
-                        "https",
                         "iclass.buaa.edu.cn",
                         FALLBACK_PORT,
                         API_PATHS["login"],
@@ -290,6 +340,7 @@ class Api:
                         result = data.get("result", data)
                         self.userId = str(result.get("id", self.userId))
                         self.sessionId = result.get("sessionId", self.sessionId)
+                        self.userName = result.get("realName", result.get("name", self.userName))
                         self._current_port = FALLBACK_PORT
                         self._log(f"回退到端口 {FALLBACK_PORT} 成功", "info")
                 except Exception as e:
@@ -299,18 +350,18 @@ class Api:
                 return {"success": False, "error": "登录成功但用户信息不完整"}
 
             self.session.headers.update({"sessionId": self.sessionId})
-            self._log(f"登录成功 (UID: {self.userId}, 端口: {self._current_port})", "success")
-            return {"success": True, "userId": self.userId}
+            name_display = f" ({self.userName})" if self.userName else ""
+            self._log(f"登录成功 (UID: {self.userId}{name_display})", "success")
+            return {"success": True, "userId": self.userId, "userName": self.userName}
         except Exception as e:
             self._log(f"登录异常: {str(e)}", "error")
             return {"success": False, "error": str(e)}
 
     def _fetch_day(self, date_str):
-        """获取指定日期的课表数据，优先使用主端口"""
+        """获取指定日期的课表数据"""
         try:
             res = self._request(
                 "GET",
-                "https",
                 "iclass.buaa.edu.cn",
                 PRIMARY_PORT,
                 API_PATHS["course_schedule"],
@@ -318,10 +369,22 @@ class Api:
                 timeout=10,
             )
             if res.status_code == 200:
-                return res.json()
+                data = res.json()
+                self._cache_course_names(data)
+                return data
         except Exception:
             pass
         return None
+
+    def _cache_course_names(self, data):
+        """缓存课程 ID 到课程名称的映射"""
+        if not data or "result" not in data:
+            return
+        for course in data.get("result", []):
+            course_id = course.get("id", "")
+            course_name = course.get("courseName", course.get("course_name", ""))
+            if course_id and course_name:
+                self._course_names[course_id] = course_name
 
     def get_week_courses(self, week_number, year, month, day):
         """并发获取一周课表并合并重复课程"""
@@ -334,6 +397,7 @@ class Api:
         week_dates = [start_date + datetime.timedelta(days=i) for i in range(7)]
 
         self._week_cache = {}
+        self._course_names = {}
         result = {}
         self._log(f"正在加载第 {week_number} 周课表...")
 
@@ -355,15 +419,7 @@ class Api:
                     merged = merge_courses(raw)
                     result[str(idx)] = {
                         "date": week_dates[idx].strftime("%m-%d"),
-                        "weekday": [
-                            "周一",
-                            "周二",
-                            "周三",
-                            "周四",
-                            "周五",
-                            "周六",
-                            "周日",
-                        ][idx],
+                        "weekday": ["周一", "周二", "周三", "周四", "周五", "周六", "周日"][idx],
                         "isToday": week_dates[idx].date() == datetime.date.today(),
                         "courses": merged,
                     }
@@ -371,15 +427,7 @@ class Api:
                     self._log(f"第 {idx + 1} 天数据获取失败: {str(e)}", "warning")
                     result[str(idx)] = {
                         "date": week_dates[idx].strftime("%m-%d"),
-                        "weekday": [
-                            "周一",
-                            "周二",
-                            "周三",
-                            "周四",
-                            "周五",
-                            "周六",
-                            "周日",
-                        ][idx],
+                        "weekday": ["周一", "周二", "周三", "周四", "周五", "周六", "周日"][idx],
                         "isToday": False,
                         "courses": [],
                     }
@@ -387,25 +435,46 @@ class Api:
         self._log(f"课表加载完成，共 {total} 门课程", "success")
         return result
 
-    def sign_course(self, course_ids_json):
+    def sign_course(self, course_ids, course_names=None):
         """
         发送签到请求。
-
-        使用 8081 端口，timestamp 额外增加 36000ms 以确保服务器时间同步。
+        Args:
+            course_ids: 课程 ID 列表
+            course_names: 课程名称列表
         """
-        course_ids = (
-            json.loads(course_ids_json)
-            if isinstance(course_ids_json, str)
-            else course_ids_json
-        )
+        # 统一处理为列表
+        if isinstance(course_ids, str):
+            try:
+                course_ids = json.loads(course_ids)
+            except:
+                course_ids = [course_ids]
+        if isinstance(course_names, str):
+            try:
+                course_names = json.loads(course_names)
+            except:
+                course_names = [course_names]
+        if not course_names:
+            course_names = []
+        if not isinstance(course_ids, list):
+            course_ids = [course_ids]
+
         success = 0
         failed = 0
-        for cid in course_ids:
+        results = []
+
+        for i, cid in enumerate(course_ids):
+            course_name = None
+            if i < len(course_names) and course_names[i]:
+                course_name = course_names[i]
+            if not course_name:
+                course_name = self._course_names.get(cid, "")
+
+            display_name = course_name if course_name else cid[:8] + "..."
+
             try:
                 timestamp = int(time.time() * 1000) + 36000
                 res = self._request(
                     "POST",
-                    "http",
                     "iclass.buaa.edu.cn",
                     PRIMARY_SIGN_PORT,
                     API_PATHS["sign"],
@@ -421,36 +490,37 @@ class Api:
                         resp_data = res.json()
                         if resp_data.get("STATUS") == "0" or resp_data.get("status") == "0":
                             success += 1
-                            self._log(f"课程 {cid[:8]}... 签到成功", "success")
+                            results.append({"id": cid, "name": display_name, "status": "success"})
+                            self._log(f"{display_name} 签到成功", "success")
                         else:
                             failed += 1
                             err_msg = resp_data.get("ERRMSG", resp_data.get("ERRORMSG", "未知错误"))
-                            self._log(f"课程 {cid[:8]}... 签到失败: {err_msg}", "warning")
+                            results.append({"id": cid, "name": display_name, "status": "failed", "error": err_msg})
+                            self._log(f"{display_name} 签到失败: {err_msg}", "warning")
                     except json.JSONDecodeError:
                         if "成功" in res.text or "SUCCESS" in res.text:
                             success += 1
+                            results.append({"id": cid, "name": display_name, "status": "success"})
+                            self._log(f"{display_name} 签到成功", "success")
                         else:
                             failed += 1
+                            results.append({"id": cid, "name": display_name, "status": "failed"})
                 else:
                     failed += 1
-                    self._log(f"课程 {cid[:8]}... HTTP {res.status_code}", "warning")
+                    results.append({"id": cid, "name": display_name, "status": "failed", "error": f"HTTP {res.status_code}"})
+                    self._log(f"{display_name} HTTP {res.status_code}", "warning")
             except Exception as e:
                 failed += 1
-                self._log(f"课程 {cid[:8]}... 异常: {str(e)[:50]}", "warning")
+                results.append({"id": cid, "name": display_name, "status": "failed", "error": str(e)[:50]})
+                self._log(f"{display_name} 异常: {str(e)[:50]}", "warning")
             time.sleep(0.15)
 
         if success > 0:
-            self._log(
-                f"签到完成: {success}/{len(course_ids)} 成功",
-                "success" if failed == 0 else "warning",
-            )
+            self._log(f"签到完成: {success}/{len(course_ids)} 成功", "success" if failed == 0 else "warning")
         else:
-            self._log(
-                "签到失败：可能尚未开放签到或已过签到时间",
-                "warning",
-            )
+            self._log("签到失败：可能尚未开放签到或已过签到时间", "warning")
 
-        return {"success": success, "total": len(course_ids), "failed": failed}
+        return {"success": success, "total": len(course_ids), "failed": failed, "results": results}
 
     def batch_sign_week(self, week_number, year, month, day):
         """批量签到本周所有课程"""
@@ -458,24 +528,28 @@ class Api:
             self.get_week_courses(week_number, year, month, day)
 
         all_ids = []
+        all_names = []
         for day_courses in self._week_cache.values():
             for c in day_courses:
-                all_ids.append(c.get("id", ""))
+                cid = c.get("id", "")
+                all_ids.append(cid)
+                name = c.get("courseName", "")
+                if not name:
+                    name = self._course_names.get(cid, "")
+                all_names.append(name)
 
         if not all_ids:
             self._log("本周暂无可签到的课程", "warning")
             return {"success": 0, "total": 0}
 
         self._log(f"正在批量签到 {len(all_ids)} 门课程...")
-        return self.sign_course(all_ids)
+        return self.sign_course(all_ids, all_names)
 
     def get_current_week(self, year, month, day):
         """根据学期起始日计算当前周数"""
         try:
             semester_start = datetime.datetime(int(year), int(month), int(day))
-            return max(
-                1, min(18, (datetime.datetime.now() - semester_start).days // 7 + 1)
-            )
+            return max(1, min(18, (datetime.datetime.now() - semester_start).days // 7 + 1))
         except ValueError:
             return 1
 
