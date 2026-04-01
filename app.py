@@ -2,6 +2,8 @@
 北航课程助手 (BUAA Sign Tool)
 支持校内直连与校外 WebVPN 两种网络模式。
 基于 pywebview + 原生前端的单体桌面应用。
+
+支持双端口兜底机制：优先使用 8347 端口，失败时自动回退到 8346 端口。
 """
 
 import os
@@ -22,6 +24,30 @@ except ImportError:
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 os.environ["http_proxy"] = os.environ["https_proxy"] = ""
+
+
+# ==========================================
+# 常量定义
+# ==========================================
+
+# API 端口配置 - 8347 为新端口，8346 为旧端口兜底
+PRIMARY_PORT = "8347"
+FALLBACK_PORT = "8346"
+
+# 签到端口配置
+PRIMARY_SIGN_PORT = "8081"
+FALLBACK_SIGN_PORT = "8081"  # 签到端口保持不变
+
+# API 路径配置
+API_PATHS = {
+    "login": "/app/user/login.action",
+    "course_schedule": "/app/course/get_stu_course_sched.action",
+    "sign": "/app/course/stu_scan_sign.action",
+    # 新增：8347 专用端点
+    "semester_list": "/app/course/get_base_school_year.action",
+    "course_list": "/app/choosecourse/get_myall_course.action",
+    "course_detail": "/app/my/get_my_course_sign_detail.action",
+}
 
 
 def wengine_encrypt(text):
@@ -94,7 +120,7 @@ _APP_CONTEXT = {}
 
 
 class Api:
-    """前端可调用的后端 API 接口"""
+    """前端可调用的后端 API 接口，支持双端口兜底机制"""
 
     def __init__(self):
         self.userId = None
@@ -105,11 +131,15 @@ class Api:
 
         self.session.headers.update(
             {
-                "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36",
+                "Accept": "application/json, text/html;q=0.9, */*;q=0.8",
+                "Accept-Language": "zh-CN,zh;q=0.9",
                 "Connection": "keep-alive",
             }
         )
         self._week_cache = {}
+        self._current_port = PRIMARY_PORT
+        self._sign_port = PRIMARY_SIGN_PORT
 
     def _log(self, msg, msg_type="info"):
         """将日志推送到前端界面"""
@@ -121,41 +151,74 @@ class Api:
             except Exception:
                 pass
 
-    def _request(self, method, scheme, host, port, path, **kwargs):
-        """统一的网络请求方法，自动处理 VPN 代理和 Header 编码"""
-        if self.use_vpn:
-            # 激活 VPN 通道
-            probe_url = f"https://d.buaa.edu.cn/wengine-vpn/cookie?method={method.lower()}&host={host}:{port}&scheme={scheme}&path={path}"
+    def _get_vpn_url(self, host, port, path):
+        """构建 WebVPN 代理 URL"""
+        encrypted_host = wengine_encrypt(f"{host}:{port}")
+        return f"https://d.buaa.edu.cn/https-{port}/{encrypted_host}{path}"
+
+    def _request(self, method, scheme, host, port, path, use_fallback=True, **kwargs):
+        """
+        统一的网络请求方法，支持双端口兜底机制。
+
+        Args:
+            method: HTTP 方法
+            scheme: http 或 https
+            host: 目标主机
+            port: 目标端口
+            path: 请求路径
+            use_fallback: 是否启用端口回退
+            **kwargs: 其他请求参数
+
+        Returns:
+            requests.Response 对象
+        """
+        ports_to_try = [port]
+        if use_fallback and port == PRIMARY_PORT:
+            ports_to_try.append(FALLBACK_PORT)
+
+        last_error = None
+        for try_port in ports_to_try:
+            if self.use_vpn:
+                url = self._get_vpn_url(host, try_port, path)
+            else:
+                url = f"{scheme}://{host}:{try_port}{path}"
+
+            # 修正 Header 中的非 Latin-1 字符，防止请求异常
+            for k, v in list(self.session.headers.items()):
+                try:
+                    str(v).encode("latin-1")
+                except UnicodeEncodeError:
+                    self.session.headers[k] = (
+                        str(v).encode("utf-8").decode("latin-1", "ignore")
+                    )
+
+            start_time = time.time()
             try:
-                self.session.get(probe_url, timeout=3, verify=False)
-            except Exception:
-                pass
+                res = self.session.request(method, url, verify=False, **kwargs)
+                cost = int((time.time() - start_time) * 1000)
+                status = res.status_code
 
-            # 构建 VPN 代理 URL
-            url = f"https://d.buaa.edu.cn/{scheme}-{port}/{wengine_encrypt(host)}{path}"
-        else:
-            url = f"{scheme}://{host}:{port}{path}"
+                if status >= 400:
+                    self._log(f"请求失败 [{status}]: {path} ({cost}ms)", "warning")
+                    last_error = f"HTTP {status}"
+                    continue
 
-        # 修正 Header 中的非 Latin-1 字符，防止请求异常
-        for k, v in list(self.session.headers.items()):
-            try:
-                str(v).encode("latin-1")
-            except UnicodeEncodeError:
-                self.session.headers[k] = (
-                    str(v).encode("utf-8").decode("latin-1", "ignore")
-                )
+                # 记录当前工作的端口
+                if try_port != self._current_port:
+                    self._current_port = try_port
+                    # if use_fallback:
+                    #     self._log(f"切换到端口 {try_port}", "info")
 
-        start_time = time.time()
-        try:
-            res = self.session.request(method, url, verify=False, **kwargs)
-            cost = int((time.time() - start_time) * 1000)
-            status = res.status_code
-            if status >= 400:
-                self._log(f"请求失败 [{status}]: {path} ({cost}ms)", "error")
-            return res
-        except requests.exceptions.RequestException as e:
-            self._log(f"连接失败: {path} - {str(e)}", "error")
-            raise e
+                return res
+
+            except requests.exceptions.RequestException as e:
+                last_error = str(e)
+                self._log(f"连接失败 (端口 {try_port}): {last_error}", "warning")
+                continue
+
+        # 所有端口都失败
+        self._log(f"连接失败: {path} - {last_error}", "error")
+        raise requests.exceptions.RequestException(last_error)
 
     def login_direct(self, student_id):
         """校内直连登录"""
@@ -177,14 +240,14 @@ class Api:
         return self._do_login(student_id)
 
     def _do_login(self, student_id):
-        """执行登录请求"""
+        """执行登录请求，优先使用 8347 端口，自动回退到 8346"""
         try:
             res = self._request(
                 "GET",
                 "https",
                 "iclass.buaa.edu.cn",
-                "8346",
-                "/app/user/login.action",
+                PRIMARY_PORT,
+                API_PATHS["login"],
                 params={
                     "password": "",
                     "phone": student_id,
@@ -195,29 +258,62 @@ class Api:
                 timeout=10,
             )
             data = res.json()
-            if data.get("STATUS") != "0":
-                error_msg = data.get("ERRORMSG", "服务器拒绝登录")
+            if data.get("status") != "0" and data.get("STATUS") != "0":
+                error_msg = data.get("ERRORMSG", data.get("ERRMSG", "服务器拒绝登录"))
                 self._log(f"登录失败: {error_msg}", "error")
                 return {"success": False, "error": error_msg}
 
-            self.userId = data["result"]["id"]
-            self.sessionId = data["result"]["sessionId"]
+            result = data.get("result", data)
+            self.userId = str(result.get("id", ""))
+            self.sessionId = result.get("sessionId", "")
+            if not self.userId or not self.sessionId:
+                self._log("登录成功但获取用户信息不完整，尝试回退端口...", "warning")
+                try:
+                    res = self._request(
+                        "GET",
+                        "https",
+                        "iclass.buaa.edu.cn",
+                        FALLBACK_PORT,
+                        API_PATHS["login"],
+                        params={
+                            "password": "",
+                            "phone": student_id,
+                            "userLevel": "1",
+                            "verificationType": "2",
+                            "verificationUrl": "",
+                        },
+                        use_fallback=False,
+                        timeout=10,
+                    )
+                    data = res.json()
+                    if data.get("status") == "0" or data.get("STATUS") == "0":
+                        result = data.get("result", data)
+                        self.userId = str(result.get("id", self.userId))
+                        self.sessionId = result.get("sessionId", self.sessionId)
+                        self._current_port = FALLBACK_PORT
+                        self._log(f"回退到端口 {FALLBACK_PORT} 成功", "info")
+                except Exception as e:
+                    self._log(f"回退登录也失败: {e}", "warning")
+
+            if not self.userId or not self.sessionId:
+                return {"success": False, "error": "登录成功但用户信息不完整"}
+
             self.session.headers.update({"sessionId": self.sessionId})
-            self._log(f"登录成功 (UID: {self.userId})", "success")
+            self._log(f"登录成功 (UID: {self.userId}, 端口: {self._current_port})", "success")
             return {"success": True, "userId": self.userId}
         except Exception as e:
             self._log(f"登录异常: {str(e)}", "error")
             return {"success": False, "error": str(e)}
 
     def _fetch_day(self, date_str):
-        """获取指定日期的课表数据"""
+        """获取指定日期的课表数据，优先使用主端口"""
         try:
             res = self._request(
                 "GET",
                 "https",
                 "iclass.buaa.edu.cn",
-                "8346",
-                "/app/course/get_stu_course_sched.action",
+                PRIMARY_PORT,
+                API_PATHS["course_schedule"],
                 params={"dateStr": date_str, "id": self.userId},
                 timeout=10,
             )
@@ -292,44 +388,61 @@ class Api:
         return result
 
     def sign_course(self, course_ids_json):
-        """发送签到请求（签到接口固定为 HTTP:8081）"""
+        """
+        发送签到请求。
+
+        使用 8081 端口，timestamp 额外增加 36000ms 以确保服务器时间同步。
+        """
         course_ids = (
             json.loads(course_ids_json)
             if isinstance(course_ids_json, str)
             else course_ids_json
         )
         success = 0
+        failed = 0
         for cid in course_ids:
             try:
+                timestamp = int(time.time() * 1000) + 36000
                 res = self._request(
                     "POST",
                     "http",
                     "iclass.buaa.edu.cn",
-                    "8081",
-                    "/app/course/stu_scan_sign.action",
+                    PRIMARY_SIGN_PORT,
+                    API_PATHS["sign"],
                     params={
                         "courseSchedId": cid,
-                        "timestamp": int(time.time() * 1000),
+                        "timestamp": timestamp,
                         "id": self.userId,
                     },
                     timeout=10,
                 )
                 if res.status_code == 200:
                     try:
-                        if res.json().get("STATUS") == "0":
+                        resp_data = res.json()
+                        if resp_data.get("STATUS") == "0" or resp_data.get("status") == "0":
                             success += 1
+                            self._log(f"课程 {cid[:8]}... 签到成功", "success")
+                        else:
+                            failed += 1
+                            err_msg = resp_data.get("ERRMSG", resp_data.get("ERRORMSG", "未知错误"))
+                            self._log(f"课程 {cid[:8]}... 签到失败: {err_msg}", "warning")
                     except json.JSONDecodeError:
                         if "成功" in res.text or "SUCCESS" in res.text:
                             success += 1
-                print(res.json())
-            except Exception:
-                pass
+                        else:
+                            failed += 1
+                else:
+                    failed += 1
+                    self._log(f"课程 {cid[:8]}... HTTP {res.status_code}", "warning")
+            except Exception as e:
+                failed += 1
+                self._log(f"课程 {cid[:8]}... 异常: {str(e)[:50]}", "warning")
             time.sleep(0.15)
 
         if success > 0:
             self._log(
                 f"签到完成: {success}/{len(course_ids)} 成功",
-                "success",
+                "success" if failed == 0 else "warning",
             )
         else:
             self._log(
@@ -337,7 +450,7 @@ class Api:
                 "warning",
             )
 
-        return {"success": success, "total": len(course_ids)}
+        return {"success": success, "total": len(course_ids), "failed": failed}
 
     def batch_sign_week(self, week_number, year, month, day):
         """批量签到本周所有课程"""
