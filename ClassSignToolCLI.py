@@ -4,8 +4,16 @@ import time
 import datetime
 import sys
 import os
+from iclass_client import (
+    classify_sign_response,
+    get_network_urls,
+    is_status_ok,
+    server_now_millis,
+    server_time_offset_from_date,
+)
 
 student_id = ''  # 请填写你的学号
+SERVER_TIME_OFFSET_MS = 0
 
 
 # 颜色代码
@@ -74,10 +82,12 @@ def get_date_input(prompt):
 
 def login():
     """登录并获取用户ID和sessionId"""
+    global SERVER_TIME_OFFSET_MS
     print_header("登录系统")
     print(f"{Colors.YELLOW}正在登录...{Colors.END}")
 
-    url = 'https://iclass.buaa.edu.cn:8346/app/user/login.action'
+    urls = get_network_urls(False)
+    url = urls['user_login']
     para = {
         'phone': input(f"{Colors.BLUE}请输入学号: {Colors.END}"),
         'userLevel': '1',
@@ -87,12 +97,13 @@ def login():
 
     try:
         res = requests.get(url=url, params=para, timeout=10)
+        SERVER_TIME_OFFSET_MS = server_time_offset_from_date(res.headers.get('date'))
         print(f"{Colors.BLUE}登录响应状态码: {res.status_code}{Colors.END}")
 
         # 尝试解析JSON
         userData = json.loads(res.text)
 
-        if userData.get('STATUS') != '0':
+        if not is_status_ok(userData):
             print(f"{Colors.RED}登录失败: {userData.get('ERRORMSG', '未知错误')}{Colors.END}")
             input(f"{Colors.YELLOW}按回车键继续...{Colors.END}")
             return None, None
@@ -120,7 +131,8 @@ def login():
 
 def get_course_schedule(userId, sessionId, dateStr):
     """获取指定日期的课程表"""
-    url = 'https://iclass.buaa.edu.cn:8346/app/course/get_stu_course_sched.action'
+    urls = get_network_urls(False)
+    url = urls['course_schedule_by_date']
     para = {
         'dateStr': dateStr,
         'id': userId
@@ -137,17 +149,25 @@ def get_course_schedule(userId, sessionId, dateStr):
         return None
 
 
-def sign_course(userId, courseSchedId):
+def sign_course(userId, courseSchedId, sessionId=None):
     """课程打卡"""
+    urls = get_network_urls(False)
     params = {
-        'id': userId
+        'id': userId,
+        'courseSchedId': courseSchedId,
+        'timestamp': str(server_now_millis(SERVER_TIME_OFFSET_MS)),
     }
-    current_timestamp_milliseconds = int(time.time() * 1000)
-    url = f'http://iclass.buaa.edu.cn:8081/app/course/stu_scan_sign.action?courseSchedId={courseSchedId}&timestamp={current_timestamp_milliseconds}'
+    headers = {'sessionId': sessionId} if sessionId else None
 
     try:
-        r = requests.post(url=url, params=params, timeout=10)
-        return r.ok
+        r = requests.post(url=urls['scan_sign'], params=params, headers=headers, timeout=10)
+        if not r.ok:
+            return False
+        try:
+            result = classify_sign_response(r.json())
+            return result.status in ('success', 'skipped')
+        except json.JSONDecodeError:
+            return '成功' in r.text or 'SUCCESS' in r.text
     except Exception as e:
         print(f"{Colors.RED}打卡请求失败: {e}{Colors.END}")
         return False
@@ -211,7 +231,7 @@ def process_single_day(userId, sessionId, date_str):
                 end = classEndTime[11:16]
 
                 print(f"{Colors.BLUE}正在打卡: {courseName}...{Colors.END}")
-                if sign_course(userId, courseSchedId):
+                if sign_course(userId, courseSchedId, sessionId):
                     print(f"{Colors.GREEN}✓ 已打卡: {date_display}\t{courseName}\t{begin}-{end}{Colors.END}")
                 else:
                     print(f"{Colors.RED}✗ 打卡失败: {date_display}\t{courseName}\t{begin}-{end}{Colors.END}")
@@ -230,7 +250,7 @@ def process_single_day(userId, sessionId, date_str):
             end = classEndTime[11:16]
 
             print(f"{Colors.BLUE}正在打卡: {courseName}...{Colors.END}")
-            if sign_course(userId, courseSchedId):
+            if sign_course(userId, courseSchedId, sessionId):
                 print(f"{Colors.GREEN}✓ 已打卡: {date_display}\t{courseName}\t{begin}-{end}{Colors.END}")
             else:
                 print(f"{Colors.RED}✗ 打卡失败: {date_display}\t{courseName}\t{begin}-{end}{Colors.END}")
@@ -318,7 +338,7 @@ def process_continuous_days(userId, sessionId, start_date_str):
 
                 # 执行打卡
                 print(f"{Colors.BLUE}正在打卡...{Colors.END}")
-                if sign_course(userId, courseSchedId):
+                if sign_course(userId, courseSchedId, sessionId):
                     print(f"{Colors.GREEN}✓ 已打卡: {date_display}\t{courseName}\t{begin}-{end}{Colors.END}")
                 else:
                     print(f"{Colors.RED}✗ 打卡失败: {date_display}\t{courseName}\t{begin}-{end}{Colors.END}")

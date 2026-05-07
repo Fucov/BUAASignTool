@@ -1,3 +1,4 @@
+.DS_Store
 # PyInstaller
 build/
 dist/
@@ -12,3 +13,4 @@ dist/
 # Python cache
 __pycache__/
 iclass*/
+ref*/

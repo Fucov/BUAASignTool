@@ -17,6 +17,14 @@ import requests
 import urllib3
 import webview
 from bs4 import BeautifulSoup
+from iclass_client import (
+    SSO_VPN_ENTRY,
+    classify_sign_response,
+    get_network_urls as build_network_urls,
+    is_status_ok,
+    server_now_millis,
+    server_time_offset_from_date,
+)
 
 try:
     from Crypto.Cipher import AES
@@ -35,8 +43,8 @@ PRIMARY_PORT = "8347"
 FALLBACK_PORT = "8346"
 PRIMARY_SIGN_PORT = "8081"
 
-# SSO 登录地址
-SSO_LOGIN_URL = "https://d.buaa.edu.cn/https/77726476706e69737468656265737421e3e44ed225256951300d8db9d6562d/login"
+# SSO 登录入口。实际 CAS 表单地址会在请求后由重定向解析。
+SSO_LOGIN_URL = SSO_VPN_ENTRY
 SSO_SERVICE_PARAM = "service=https%3A%2F%2Fd.buaa.edu.cn%2Flogin%3Fcas_login%3Dtrue"
 
 # VPN 预加密服务 ID（iClass 服务的固定标识）
@@ -48,28 +56,7 @@ VPN_SERVICE_ID = "77726476706e69737468656265737421f9f44d9d342326526b0988e29d5136
 
 def get_network_urls(use_vpn):
     """获取网络 URL，参照 Rust 版本的 network_urls"""
-    if use_vpn:
-        base = f"https://d.buaa.edu.cn/https-8347/{VPN_SERVICE_ID}"
-        return {
-            "service_home": base,
-            "user_login": f"{base}/app/user/login.action",
-            "course_list": f"{base}/app/choosecourse/get_myall_course.action",
-            "semester_list": f"{base}/app/course/get_base_school_year.action",
-            "course_sign_detail": f"{base}/app/my/get_my_course_sign_detail.action",
-            "scan_sign": f"{base}/app/course/stu_scan_sign.action",
-            "course_schedule_by_date": f"{base}/app/course/get_stu_course_sched.action",
-        }
-    else:
-        base = "https://iclass.buaa.edu.cn:8347"
-        return {
-            "service_home": base,
-            "user_login": f"{base}/app/user/login.action",
-            "course_list": f"{base}/app/choosecourse/get_myall_course.action",
-            "semester_list": f"{base}/app/course/get_base_school_year.action",
-            "course_sign_detail": f"{base}/app/my/get_my_course_sign_detail.action",
-            "scan_sign": "http://iclass.buaa.edu.cn:8081/app/course/stu_scan_sign.action",
-            "course_schedule_by_date": f"{base}/app/course/get_stu_course_sched.action",
-        }
+    return build_network_urls(use_vpn)
 
 
 def merge_courses(courses):
@@ -130,6 +117,7 @@ class Api:
         self._sign_port = PRIMARY_SIGN_PORT
         self._course_names = {}
         self._urls = None
+        self.server_time_offset_ms = 0
 
     def _reset_session(self):
         """重置会话，清除 cookies"""
@@ -179,15 +167,16 @@ class Api:
         try:
             response = self.session.get(SSO_LOGIN_URL, timeout=10, verify=False)
             response.raise_for_status()
+            login_url = response.url
 
             soup = BeautifulSoup(response.text, 'html.parser')
             execution_input = soup.find('input', {'name': 'execution'})
             if execution_input and execution_input.get('value'):
-                return execution_input['value']
+                return login_url, execution_input['value']
 
             match = re.search(r'name="execution"\s+value="([^"]+)"', response.text)
             if match:
-                return match.group(1)
+                return login_url, match.group(1)
 
             raise ValueError("无法从 SSO 页面解析 execution 参数")
         except Exception as e:
@@ -198,11 +187,11 @@ class Api:
         """通过统一身份认证登录 WebVPN"""
         try:
             self._log("正在连接 SSO 认证服务...")
-            execution = self._fetch_execution()
+            login_url, execution = self._fetch_execution()
             self._log("已获取认证令牌，正在登录...", "info")
 
             response = self.session.post(
-                SSO_LOGIN_URL,
+                login_url,
                 data={
                     "username": username,
                     "password": password,
@@ -211,7 +200,7 @@ class Api:
                     "execution": execution,
                     "_eventId": "submit",
                 },
-                headers={"Referer": SSO_LOGIN_URL},
+                headers={"Referer": login_url},
                 allow_redirects=True,
                 timeout=15,
                 verify=False,
@@ -277,11 +266,11 @@ class Api:
         """通过统一身份认证登录 WebVPN（内部方法）"""
         try:
             self._log("正在连接 SSO 认证服务...")
-            execution = self._fetch_execution()
+            login_url, execution = self._fetch_execution()
             self._log("已获取认证令牌，正在登录...", "info")
 
             response = self.session.post(
-                SSO_LOGIN_URL,
+                login_url,
                 data={
                     "username": username,
                     "password": password,
@@ -290,7 +279,7 @@ class Api:
                     "execution": execution,
                     "_eventId": "submit",
                 },
-                headers={"Referer": SSO_LOGIN_URL},
+                headers={"Referer": login_url},
                 allow_redirects=True,
                 timeout=15,
                 verify=False,
@@ -345,9 +334,13 @@ class Api:
                 verify=False,
             )
             res.raise_for_status()
+            self.server_time_offset_ms = server_time_offset_from_date(
+                res.headers.get("date"),
+                use_vpn=self.use_vpn,
+            )
             data = res.json()
             
-            if data.get("STATUS") != "0" and data.get("status") != "0":
+            if not is_status_ok(data):
                 error_msg = data.get("ERRMSG", data.get("ERRORMSG", "服务器拒绝登录"))
                 self._log(f"登录失败: {error_msg}", "error")
                 return {"success": False, "error": error_msg}
@@ -627,7 +620,7 @@ class Api:
             display_name = course_name if course_name else cid[:8] + "..."
 
             try:
-                timestamp = str(int(time.time() * 1000) + 36000)
+                timestamp = str(server_now_millis(self.server_time_offset_ms))
                 
                 # 参照 Rust 版本：POST 请求，参数放在 query string
                 res = self.session.post(
@@ -645,27 +638,23 @@ class Api:
                 if res.status_code == 200:
                     try:
                         resp_data = res.json()
-                        # 处理 STATUS 可能是数字或字符串
-                        status_raw = resp_data.get("STATUS", resp_data.get("status", ""))
-                        status = str(status_raw)
-                        
-                        if status == "0":
+                        classification = classify_sign_response(resp_data)
+
+                        if classification.status == "success":
                             success += 1
                             results.append({"id": cid, "name": display_name, "status": "success"})
                             self._log(f"{display_name} 签到成功", "success")
+                        elif classification.status == "skipped":
+                            skipped += 1
+                            results.append({"id": cid, "name": display_name, "status": "skipped"})
+                            self._log(f"{display_name} 已签到", "info")
                         else:
-                            err_msg = str(resp_data.get("ERRMSG", resp_data.get("ERRORMSG", "")))
-                            if "已签到" in err_msg:
-                                skipped += 1
-                                results.append({"id": cid, "name": display_name, "status": "skipped"})
-                                self._log(f"{display_name} 已签到", "info")
-                            else:
-                                failed += 1
-                                results.append({"id": cid, "name": display_name, "status": "failed"})
-                                self._log(f"{display_name} 签到失败", "warning")
+                            failed += 1
+                            results.append({"id": cid, "name": display_name, "status": "failed"})
+                            self._log(f"{display_name} 签到失败: {classification.message}", "warning")
                     except json.JSONDecodeError:
                         text = res.text
-                        if "成功" in text or "SUCCESS" in text or "status" in text.lower():
+                        if "成功" in text or "SUCCESS" in text:
                             success += 1
                             results.append({"id": cid, "name": display_name, "status": "success"})
                             self._log(f"{display_name} 签到成功", "success")
