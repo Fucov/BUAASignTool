@@ -31,6 +31,8 @@
                     <div id="directInputArea">
                         <label class="field-label" id="lblUid">学号</label>
                         <input type="text" id="studentId" class="input" placeholder="输入学号" autocomplete="off">
+                        <label class="field-label" style="margin-top: 12px;" id="lblDirectPwd">密码</label>
+                        <input type="password" id="directPassword" class="input" placeholder="统一认证密码" autocomplete="off">
                     </div>
 
                     <!-- VPN 模式：账号密码 -->
@@ -41,17 +43,15 @@
                         <label class="field-label" style="margin-top: 12px;" id="lblVpnPwd">密码</label>
                         <input type="password" id="vpnPassword" class="input" placeholder="统一认证密码" autocomplete="off">
 
-                        <!-- 隐藏的学号输入（用于替签测试，不显示标签） -->
-                        <input type="text" id="studentIdProxy" class="input" style="margin-top: 8px; display: none;" placeholder="学号（可选）" autocomplete="off">
                     </div>
 
                     <label class="field-label" style="margin-top: 16px;" id="lblSemester">学期基准日</label>
                     <div class="date-row">
                         <input type="number" id="yearInput" class="input input-sm" value="2026" min="2020" max="2030">
                         <span class="date-sep">/</span>
-                        <input type="number" id="monthInput" class="input input-sm" value="3" min="1" max="12">
+                        <input type="number" id="monthInput" class="input input-sm" value="9" min="1" max="12">
                         <span class="date-sep">/</span>
-                        <input type="number" id="dayInput" class="input input-sm" value="2" min="1" max="31">
+                        <input type="number" id="dayInput" class="input input-sm" value="7" min="1" max="31">
                     </div>
 
                     <button class="btn btn-primary" id="loginBtn" onclick="app.login()">

@@ -9,12 +9,12 @@ const DICT = {
         segVpn: '校外网络',
         lblUid: '学号',
         phUid: '输入学号',
+        lblDirectPwd: '密码',
+        phDirectPwd: '统一认证密码',
         lblVpnUid: '账号',
         phVpnUid: '统一认证账号',
         lblVpnPwd: '密码',
         phVpnPwd: '统一认证密码',
-        lblStudentId: '学号',
-        phStudentId: '输入学号',
         lblSemester: '学期基准日',
         btnLoginDirect: '登 录',
         btnLoginVpn: 'VPN 登录',
@@ -43,6 +43,12 @@ const DICT = {
         msgLoadFail: '加载失败:',
         msgBatchLaunch: '正在批量签到...',
         msgSignLaunch: '正在签到:',
+        msgUpdateAvailable: '发现新版本',
+        msgUpdateQuestion: '是否前往 GitHub Releases 下载？',
+        msgUpdateFailed: '版本检查失败',
+        msgUpToDate: '当前已是最新版本',
+        msgUpdateDeclined: '已暂不更新',
+        msgOpeningReleases: '正在打开下载页面',
         errNoStudentId: '请输入学号',
         errNoVpnCreds: '请输入账号和密码',
     },
@@ -52,12 +58,12 @@ const DICT = {
         segVpn: 'WebVPN',
         lblUid: 'Student ID',
         phUid: 'Enter ID',
+        lblDirectPwd: 'Password',
+        phDirectPwd: 'SSO Password',
         lblVpnUid: 'Username',
         phVpnUid: 'SSO Username',
         lblVpnPwd: 'Password',
         phVpnPwd: 'SSO Password',
-        lblStudentId: 'Student ID',
-        phStudentId: 'Enter ID',
         lblSemester: 'Semester Start',
         btnLoginDirect: 'Sign In',
         btnLoginVpn: 'VPN Login',
@@ -86,6 +92,12 @@ const DICT = {
         msgLoadFail: 'Load failed:',
         msgBatchLaunch: 'Batch signing...',
         msgSignLaunch: 'Signing:',
+        msgUpdateAvailable: 'New version available',
+        msgUpdateQuestion: 'Open GitHub Releases to download it?',
+        msgUpdateFailed: 'Update check failed',
+        msgUpToDate: 'You are using the latest version',
+        msgUpdateDeclined: 'Update postponed',
+        msgOpeningReleases: 'Opening download page',
         errNoStudentId: 'Student ID required',
         errNoVpnCreds: 'Username and password required',
     }
@@ -122,14 +134,14 @@ const app = {
         this.$('segVpn').textContent = d.segVpn;
         this.$('lblUid').textContent = d.lblUid;
         this.$('studentId').placeholder = d.phUid;
+        this.$('lblDirectPwd').textContent = d.lblDirectPwd;
+        this.$('directPassword').placeholder = d.phDirectPwd;
         this.$('lblVpnUid').textContent = d.lblVpnUid;
         this.$('vpnUsername').placeholder = d.phVpnUid;
         this.$('lblVpnPwd').textContent = d.lblVpnPwd;
         this.$('vpnPassword').placeholder = d.phVpnPwd;
-        this.$('lblStudentId').textContent = d.lblStudentId;
-        this.$('studentIdProxy').placeholder = d.phStudentId;
         this.$('lblSemester').textContent = d.lblSemester;
-        this.$('btnLogout').textContent = d.btnLogout;
+        this.$('logoutBtn').textContent = d.btnLogout;
         this.$('lblTimeCtrl').textContent = d.lblTimeCtrl;
         this.$('btnReset').textContent = d.btnReset;
         this.$('btnReload').textContent = d.btnReload;
@@ -218,6 +230,41 @@ const app = {
         this.$('loadingOverlay').style.display = show ? 'flex' : 'none';
     },
 
+    async checkForUpdates() {
+        const d = DICT[this.lang];
+        try {
+            const result = await window.pywebview.api.check_for_updates();
+            if (!result.success) {
+                this.pushLog(`${d.msgUpdateFailed}: ${result.error}`, 'warning');
+                return;
+            }
+
+            if (!result.updateAvailable) {
+                this.pushLog(`${d.msgUpToDate} (${result.currentVersion})`, 'info');
+                return;
+            }
+
+            const versionLabel = `${result.currentVersion} → ${result.latestVersion}`;
+            this.pushLog(`${d.msgUpdateAvailable}: ${versionLabel}`, 'warning');
+            const accepted = window.confirm(
+                `${d.msgUpdateAvailable}: ${result.latestVersion}\n\n${d.msgUpdateQuestion}`
+            );
+            if (!accepted) {
+                this.pushLog(d.msgUpdateDeclined, 'info');
+                return;
+            }
+
+            const openResult = await window.pywebview.api.open_releases_page();
+            if (openResult.success) {
+                this.pushLog(d.msgOpeningReleases, 'info');
+            } else {
+                this.pushLog(`${d.msgUpdateFailed}: ${openResult.error || '无法打开浏览器'}`, 'warning');
+            }
+        } catch (error) {
+            this.pushLog(`${d.msgUpdateFailed}: ${error}`, 'warning');
+        }
+    },
+
     truncate(text, max) {
         return text && text.length > max ? text.slice(0, max - 1) + '…' : text;
     },
@@ -240,8 +287,6 @@ const app = {
             if (this.mode === 'vpn') {
                 const vpnUsername = this.$('vpnUsername').value.trim();
                 const vpnPassword = this.$('vpnPassword').value;
-                const studentIdProxy = this.$('studentIdProxy').value.trim();
-                
                 if (!vpnUsername || !vpnPassword) {
                     status.textContent = d.errNoVpnCreds;
                     btn.disabled = false;
@@ -249,18 +294,18 @@ const app = {
                     this.toast(d.errNoVpnCreds);
                     return;
                 }
-                // 传入可选的学号参数
-                result = await window.pywebview.api.login_vpn(vpnUsername, vpnPassword, studentIdProxy || null);
+                result = await window.pywebview.api.login_vpn(vpnUsername, vpnPassword);
             } else {
                 const studentId = this.$('studentId').value.trim();
-                if (!studentId) {
-                    status.textContent = d.errNoStudentId;
+                const directPassword = this.$('directPassword').value;
+                if (!studentId || !directPassword) {
+                    status.textContent = d.errNoVpnCreds;
                     btn.disabled = false;
                     btn.textContent = d.btnLoginDirect;
-                    this.toast(d.errNoStudentId);
+                    this.toast(d.errNoVpnCreds);
                     return;
                 }
-                result = await window.pywebview.api.login_direct(studentId);
+                result = await window.pywebview.api.login_direct(studentId, directPassword);
             }
 
             if (result.success) {
@@ -272,9 +317,9 @@ const app = {
                 btn.style.display = 'none';
                 this.$('logoutBtn').style.display = 'block';
                 this.$('studentId').disabled = true;
+                this.$('directPassword').disabled = true;
                 this.$('vpnUsername').disabled = true;
                 this.$('vpnPassword').disabled = true;
-                this.$('studentIdProxy').disabled = true;
                 ['yearInput', 'monthInput', 'dayInput', 'segDirect', 'segVpn'].forEach(i => this.$(i).disabled = true);
 
                 this.$('weekPanel').style.display = 'block';
@@ -305,7 +350,7 @@ const app = {
         btn.textContent = this.mode === 'vpn' ? d.btnLoginVpn : d.btnLoginDirect;
 
         this.$('logoutBtn').style.display = 'none';
-        ['studentId', 'vpnUsername', 'vpnPassword', 'studentIdProxy', 'yearInput', 'monthInput', 'dayInput', 'segDirect', 'segVpn'].forEach(i => this.$(i).disabled = false);
+        ['studentId', 'directPassword', 'vpnUsername', 'vpnPassword', 'yearInput', 'monthInput', 'dayInput', 'segDirect', 'segVpn'].forEach(i => this.$(i).disabled = false);
         this.$('loginStatus').textContent = '';
 
         this.$('weekPanel').style.display = 'none';
@@ -413,7 +458,8 @@ const app = {
         const location = locParts.join(' ') || (this.lang === 'zh' ? '未知' : 'Unknown');
 
         const teachers = course.teachers || [];
-        let teacherText = teachers.length === 1 ? teachers[0] : teachers.join(' & ');
+        let teacherText = teachers.length === 1 ? teachers[0] : teachers.join(' · ');
+        if (!teacherText) teacherText = this.lang === 'zh' ? '教师待定' : 'Teacher TBA';
 
         // 课程签到按钮 - 使用 this 传递卡片引用
         const btnHtml = isSigned
@@ -423,13 +469,13 @@ const app = {
         card.className = `course-card ${isSigned ? 'signed' : 'unsigned'}`;
         card.innerHTML = `
             <div class="card-header">
-                <span class="course-name">${this.truncate(name, 22)}</span>
+                <span class="course-name">${name}</span>
                 <span class="sign-badge ${isSigned ? 'signed' : 'unsigned'}">${isSigned ? d.cardBadgeDone : d.cardBadgePending}</span>
             </div>
             <div class="card-meta">
-                <span>[${begin} - ${end}]</span>
-                <span>${this.truncate(location, 18)}</span>
-                <span>${teacherText}</span>
+                <span class="meta-time">${begin} — ${end}</span>
+                <span class="meta-location">${location}</span>
+                <span class="meta-teacher">${teacherText}</span>
             </div>
             <div class="card-action">
                 ${btnHtml}
@@ -589,7 +635,11 @@ window.addEventListener('pywebviewready', () => {
     app.$('studentId').addEventListener('keydown', (e) => {
         if (e.key === 'Enter') app.login();
     });
+    app.$('directPassword').addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') app.login();
+    });
     app.$('vpnPassword').addEventListener('keydown', (e) => {
         if (e.key === 'Enter') app.login();
     });
+    setTimeout(() => app.checkForUpdates(), 600);
 });

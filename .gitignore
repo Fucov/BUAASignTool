@@ -14,3 +14,4 @@ dist/
 __pycache__/
 iclass*/
 ref*/
+*.spec

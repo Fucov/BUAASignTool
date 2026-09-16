@@ -11,19 +11,28 @@ import re
 import json
 import time
 import datetime
+import webbrowser
 from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor
 import requests
 import urllib3
 import webview
 from bs4 import BeautifulSoup
+from urllib.parse import urljoin
 from iclass_client import (
-    SSO_VPN_ENTRY,
     classify_sign_response,
+    extract_iclass_login_name,
     get_network_urls as build_network_urls,
+    get_sso_login_url,
     is_status_ok,
-    server_now_millis,
+    status_means_no_data,
     server_time_offset_from_date,
+)
+from versioning import (
+    CURRENT_VERSION,
+    GITHUB_LATEST_RELEASE_API,
+    GITHUB_RELEASES_PAGE,
+    is_newer_version,
 )
 
 try:
@@ -42,13 +51,6 @@ os.environ["http_proxy"] = os.environ["https_proxy"] = ""
 PRIMARY_PORT = "8347"
 FALLBACK_PORT = "8346"
 PRIMARY_SIGN_PORT = "8081"
-
-# SSO 登录入口。实际 CAS 表单地址会在请求后由重定向解析。
-SSO_LOGIN_URL = SSO_VPN_ENTRY
-SSO_SERVICE_PARAM = "service=https%3A%2F%2Fd.buaa.edu.cn%2Flogin%3Fcas_login%3Dtrue"
-
-# VPN 预加密服务 ID（iClass 服务的固定标识）
-VPN_SERVICE_ID = "77726476706e69737468656265737421f9f44d9d342326526b0988e29d51367ba018"
 
 # ==========================================
 # API 路径（区分直连和 VPN）
@@ -142,9 +144,51 @@ class Api:
             except Exception:
                 pass
 
-    def _get_vpn_url(self, path):
-        """构建 VPN 代理 URL"""
-        return f"https://d.buaa.edu.cn/https-8347/{VPN_SERVICE_ID}{path}"
+    def check_for_updates(self):
+        """Check the latest published GitHub release without blocking app startup."""
+        try:
+            client = requests.Session()
+            client.trust_env = False
+            response = client.get(
+                GITHUB_LATEST_RELEASE_API,
+                headers={
+                    "Accept": "application/vnd.github+json",
+                    "User-Agent": f"BUAASignTool/{CURRENT_VERSION}",
+                },
+                timeout=(4, 8),
+            )
+            response.raise_for_status()
+            release = response.json()
+            latest_version = str(release.get("tag_name", "")).strip()
+            if not latest_version:
+                raise ValueError("最新 Release 缺少版本标签")
+
+            return {
+                "success": True,
+                "currentVersion": CURRENT_VERSION,
+                "latestVersion": latest_version,
+                "releaseName": str(release.get("name", "")).strip(),
+                "updateAvailable": is_newer_version(latest_version),
+                "releaseUrl": GITHUB_RELEASES_PAGE,
+            }
+        except requests.RequestException as e:
+            return {
+                "success": False,
+                "error": f"网络请求失败: {e}",
+            }
+        except (ValueError, TypeError, json.JSONDecodeError) as e:
+            return {
+                "success": False,
+                "error": f"Release 信息解析失败: {e}",
+            }
+
+    def open_releases_page(self):
+        """Open only this project's trusted GitHub Releases page."""
+        try:
+            opened = webbrowser.open(GITHUB_RELEASES_PAGE, new=2)
+            return {"success": bool(opened)}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
 
     def _get_direct_url(self, host, port, path):
         """构建直连 URL"""
@@ -162,169 +206,128 @@ class Api:
         except Exception:
             return False
 
-    def _fetch_execution(self):
-        """从 SSO 登录页面获取 execution 令牌"""
-        try:
-            response = self.session.get(SSO_LOGIN_URL, timeout=10, verify=False)
-            response.raise_for_status()
-            login_url = response.url
+    def _fetch_login_form(self, username, password):
+        """加载 CAS 页面并保留当前页面要求的全部表单字段。"""
+        login_entry = get_sso_login_url(self.use_vpn)
+        response = self.session.get(login_entry, timeout=15, verify=False)
+        response.raise_for_status()
+        soup = BeautifulSoup(response.text, "html.parser")
+        form = soup.select_one("form#loginForm, form#fm1, form[action]")
+        if form is None:
+            raise ValueError(f"无法解析统一认证登录表单（最终地址: {response.url}）")
 
-            soup = BeautifulSoup(response.text, 'html.parser')
-            execution_input = soup.find('input', {'name': 'execution'})
-            if execution_input and execution_input.get('value'):
-                return login_url, execution_input['value']
+        action_url = urljoin(response.url, form.get("action") or response.url)
+        fields = {}
+        for element in form.select("input[name]"):
+            name = (element.get("name") or "").strip()
+            input_type = (element.get("type") or "").lower()
+            if not name or input_type in ("submit", "button", "image"):
+                continue
+            if input_type == "checkbox" and not element.has_attr("checked"):
+                continue
+            fields[name] = element.get("value", "")
 
-            match = re.search(r'name="execution"\s+value="([^"]+)"', response.text)
-            if match:
-                return login_url, match.group(1)
+        if not fields.get("execution"):
+            raise ValueError("统一认证页面缺少 execution 参数，页面结构可能已更新")
+        if "captchaId=" in response.text or "config.captcha" in response.text:
+            raise ValueError("统一认证要求验证码，请先在浏览器完成一次认证后重试")
 
-            raise ValueError("无法从 SSO 页面解析 execution 参数")
-        except Exception as e:
-            self._log(f"获取 SSO 页面失败: {e}", "error")
-            raise
+        fields.update({"username": username.strip(), "password": password})
+        fields.setdefault("submit", "登录")
+        fields.setdefault("type", "username_password")
+        fields.setdefault("_eventId", "submit")
+        return response.url, action_url, fields
 
-    def _vpn_login(self, username, password):
-        """通过统一身份认证登录 WebVPN"""
-        try:
-            self._log("正在连接 SSO 认证服务...")
-            login_url, execution = self._fetch_execution()
-            self._log("已获取认证令牌，正在登录...", "info")
+    def _sso_login(self, username, password):
+        """完成直连或 WebVPN 的统一身份认证，共享同一 cookie 会话。"""
+        self._log("正在连接统一身份认证服务...")
+        login_url, action_url, fields = self._fetch_login_form(username, password)
+        response = self.session.post(
+            action_url,
+            data=fields,
+            headers={"Referer": login_url},
+            allow_redirects=True,
+            timeout=20,
+            verify=False,
+        )
+        response.raise_for_status()
 
-            response = self.session.post(
-                login_url,
-                data={
-                    "username": username,
-                    "password": password,
-                    "submit": "登录",
-                    "type": "username_password",
-                    "execution": execution,
-                    "_eventId": "submit",
-                },
-                headers={"Referer": login_url},
-                allow_redirects=True,
-                timeout=15,
-                verify=False,
+        body = response.text
+        soup = BeautifulSoup(body, "html.parser")
+        error = soup.select_one("#msg, .login-error, .errors, .alert-danger, .error")
+        if error and error.get_text(" ", strip=True):
+            raise ValueError(f"统一认证失败: {error.get_text(' ', strip=True)}")
+        if soup.select_one("form#loginForm input[name='execution'], form#fm1 input[name='execution']"):
+            raise ValueError("统一认证失败：账号或密码错误，或账号需要先处理安全提示")
+        self._log("统一身份认证成功", "success")
+
+    def _resolve_iclass_login_name(self):
+        """逐跳访问 MyCenter，提取 iClass 临时 loginName。"""
+        urls = self._urls or get_network_urls(self.use_vpn)
+        current_url = urls["my_center"]
+        for _ in range(8):
+            response = self.session.get(
+                current_url, allow_redirects=False, timeout=15, verify=False
             )
+            login_name = extract_iclass_login_name(response.url)
+            if login_name:
+                return login_name
 
-            final_url = response.url
-            self._log(f"SSO 响应 URL: {final_url}", "info")
+            location = response.headers.get("Location")
+            if location:
+                login_name = extract_iclass_login_name(location)
+                if login_name:
+                    return login_name
+                current_url = urljoin(response.url, location)
+                continue
 
-            if self._is_iclass_url(final_url):
-                self._log("VPN 登录成功 (直达 iClass)", "success")
-                return True
+            login_name = extract_iclass_login_name(response.text)
+            if login_name:
+                return login_name
+            raise ValueError(
+                f"iClass MyCenter 未返回 loginName（HTTP {response.status_code}，"
+                f"最终地址: {response.url}）"
+            )
+        raise ValueError("iClass MyCenter 跳转超过 8 次仍未返回 loginName")
 
-            if self._is_vpn_portal_home(final_url):
-                self._log("已进入 VPN 门户，正在建立 iClass 隧道...")
-                urls = get_network_urls(True)
-                probe_url = urls["service_home"] + "/"
-                probe_response = self.session.get(probe_url, timeout=10, verify=False)
-                probe_final_url = probe_response.url
-
-                if self._is_iclass_url(probe_final_url):
-                    self._log("VPN 隧道建立成功", "success")
-                    return True
-
-                self._log(f"探测响应 URL: {probe_final_url}", "info")
-                raise ValueError("建立 VPN 隧道失败")
-
-            if response.status_code == 401:
-                raise ValueError("账号或密码错误")
-
-            raise ValueError(f"登录失败，最终 URL: {final_url}")
-
-        except ValueError:
-            raise
+    def login_direct(self, student_id, password=""):
+        """校内直连也必须先通过统一身份认证。"""
+        if not student_id or not password:
+            return {"success": False, "error": "请输入学号和统一认证密码"}
+        try:
+            self._reset_session()
+            self.use_vpn = False
+            self._urls = get_network_urls(False)
+            self._sso_login(student_id, password)
+            return self._do_login(self._resolve_iclass_login_name())
         except Exception as e:
-            self._log(f"VPN 登录异常: {e}", "error")
-            raise
+            self._log(f"登录失败: {e}", "error")
+            return {"success": False, "error": str(e)}
 
-    def login_direct(self, student_id):
-        """校内直连登录"""
-        self.use_vpn = False
-        self._urls = get_network_urls(False)
-        return self._do_login(student_id)
-
-    def login_vpn(self, vpn_username, vpn_password, student_id=None):
+    def login_vpn(self, vpn_username, vpn_password):
         """校外 WebVPN 登录"""
         self._log("正在解析 VPN 认证...")
         if not vpn_username or not vpn_password:
             return {"success": False, "error": "请输入账号和密码"}
 
         try:
-            # 重置会话以清除旧的 cookies
             self._reset_session()
-            self._vpn_sso_login(vpn_username, vpn_password)
             self.use_vpn = True
             self._urls = get_network_urls(True)
-            # 如果没有提供学号，使用 VPN 账号作为学号
-            target_id = student_id.strip() if student_id and student_id.strip() else vpn_username
-            return self._do_login(target_id)
+            self._sso_login(vpn_username, vpn_password)
+            return self._do_login(self._resolve_iclass_login_name())
         except Exception as e:
+            self._log(f"登录失败: {e}", "error")
             return {"success": False, "error": str(e)}
 
-    def _vpn_sso_login(self, username, password):
-        """通过统一身份认证登录 WebVPN（内部方法）"""
-        try:
-            self._log("正在连接 SSO 认证服务...")
-            login_url, execution = self._fetch_execution()
-            self._log("已获取认证令牌，正在登录...", "info")
-
-            response = self.session.post(
-                login_url,
-                data={
-                    "username": username,
-                    "password": password,
-                    "submit": "登录",
-                    "type": "username_password",
-                    "execution": execution,
-                    "_eventId": "submit",
-                },
-                headers={"Referer": login_url},
-                allow_redirects=True,
-                timeout=15,
-                verify=False,
-            )
-
-            final_url = response.url
-            self._log(f"SSO 响应 URL: {final_url}", "info")
-
-            if self._is_iclass_url(final_url):
-                self._log("VPN 登录成功 (直达 iClass)", "success")
-                return True
-
-            if self._is_vpn_portal_home(final_url):
-                self._log("已进入 VPN 门户，正在建立 iClass 隧道...")
-                urls = get_network_urls(True)
-                probe_url = urls["service_home"] + "/"
-                probe_response = self.session.get(probe_url, timeout=10, verify=False)
-                probe_final_url = probe_response.url
-
-                if self._is_iclass_url(probe_final_url):
-                    self._log("VPN 隧道建立成功", "success")
-                    return True
-
-                self._log(f"探测响应 URL: {probe_final_url}", "info")
-                raise ValueError("建立 VPN 隧道失败")
-
-            if response.status_code == 401:
-                raise ValueError("账号或密码错误")
-
-            raise ValueError(f"登录失败，最终 URL: {final_url}")
-
-        except ValueError:
-            raise
-        except Exception as e:
-            self._log(f"VPN 登录异常: {e}", "error")
-            raise
-
-    def _do_login(self, student_id):
-        """执行登录请求"""
+    def _do_login(self, login_name):
+        """使用 MyCenter 产生的临时 loginName 换取 iClass 会话。"""
         try:
             urls = self._urls or get_network_urls(self.use_vpn)
             res = self.session.get(
                 urls["user_login"],
                 params={
-                    "phone": student_id,
+                    "phone": login_name,
                     "password": "",
                     "userLevel": "1",
                     "verificationType": "2",
@@ -357,7 +360,11 @@ class Api:
             self.session.headers.update({"sessionId": self.sessionId})
             name_display = f" ({self.userName})" if self.userName else ""
             self._log(f"登录成功 (UID: {self.userId})", "success")
-            return {"success": True, "userId": self.userId}
+            return {
+                "success": True,
+                "userId": self.userId,
+                "userName": self.userName,
+            }
         except Exception as e:
             self._log(f"登录异常: {str(e)}", "error")
             return {"success": False, "error": str(e)}
@@ -376,13 +383,13 @@ class Api:
             res.raise_for_status()
             data = res.json()
             
-            if data.get("STATUS") != "0":
+            if not is_status_ok(data):
                 return None
 
             semesters = data.get("result", [])
             current = None
             for sem in semesters:
-                if sem.get("yearStatus") == "1":
+                if str(sem.get("yearStatus", "")) == "1":
                     current = sem.get("code")
                     break
             if not current and semesters:
@@ -409,7 +416,9 @@ class Api:
             res.raise_for_status()
             data = res.json()
             
-            if data.get("STATUS") != "0":
+            if status_means_no_data(data):
+                return []
+            if not is_status_ok(data):
                 return []
 
             courses = []
@@ -433,7 +442,7 @@ class Api:
             res.raise_for_status()
             data = res.json()
             
-            if data.get("STATUS") != "0":
+            if not is_status_ok(data):
                 return []
             return data.get("result", [])
         except Exception:
@@ -453,9 +462,9 @@ class Api:
             res.raise_for_status()
             data = res.json()
             
-            if data.get("STATUS") == "2":
+            if status_means_no_data(data):
                 return []
-            if data.get("STATUS") != "0":
+            if not is_status_ok(data):
                 return []
             return data.get("result", [])
         except Exception:
@@ -493,12 +502,14 @@ class Api:
                 timeout=10,
                 verify=False,
             )
-            if res.status_code == 200:
-                data = res.json()
-                self._cache_course_names(data)
-                return data
-        except Exception:
-            pass
+            res.raise_for_status()
+            data = res.json()
+            if not is_status_ok(data) and not status_means_no_data(data):
+                raise ValueError(data.get("ERRMSG", data.get("ERRORMSG", "课程接口返回失败")))
+            self._cache_course_names(data)
+            return data
+        except Exception as e:
+            self._log(f"{date_str} 课程获取失败: {e}", "warning")
         return None
 
     def _cache_course_names(self, data):
@@ -516,7 +527,7 @@ class Api:
         try:
             semester_start = datetime.datetime(int(year), int(month), int(day))
         except ValueError:
-            semester_start = datetime.datetime(2025, 9, 1)
+            semester_start = datetime.datetime(2026, 9, 7)
 
         start_date = semester_start + datetime.timedelta(weeks=int(week_number) - 1)
         week_dates = [start_date + datetime.timedelta(days=i) for i in range(7)]
@@ -524,6 +535,7 @@ class Api:
         self._week_cache = {}
         self._course_names = {}
         result = {}
+        failed_days = []
         self._log(f"正在加载第 {week_number} 周课表...")
 
         with ThreadPoolExecutor(max_workers=7) as executor:
@@ -535,9 +547,11 @@ class Api:
                 idx = future_map[future]
                 try:
                     data = future.result()
+                    if data is None:
+                        failed_days.append(idx)
                     raw = (
                         data.get("result", [])
-                        if data and data.get("STATUS") == "0"
+                        if data and is_status_ok(data)
                         else []
                     )
                     
@@ -570,6 +584,7 @@ class Api:
                         "courses": merged,
                     }
                 except Exception as e:
+                    failed_days.append(idx)
                     self._log(f"第 {idx + 1} 天数据获取失败: {str(e)}", "warning")
                     result[str(idx)] = {
                         "date": week_dates[idx].strftime("%m-%d"),
@@ -577,7 +592,12 @@ class Api:
                         "isToday": False,
                         "courses": [],
                     }
+        if len(failed_days) == len(week_dates):
+            raise RuntimeError("一周课程接口全部请求失败，请检查登录状态或网络")
+
         total = len([c for day in result.values() for c in day['courses']])
+        if failed_days:
+            self._log(f"有 {len(failed_days)} 天课程获取失败，已显示其余结果", "warning")
         self._log(f"课表加载完成，共 {total} 门课程", "success")
         return result
 
@@ -620,16 +640,23 @@ class Api:
             display_name = course_name if course_name else cid[:8] + "..."
 
             try:
-                timestamp = str(server_now_millis(self.server_time_offset_ms))
+                timestamp_response = self.session.get(
+                    urls["sign_timestamp"], timeout=10, verify=False
+                )
+                timestamp_response.raise_for_status()
+                timestamp_data = timestamp_response.json()
+                timestamp = str(timestamp_data.get("timestamp", "")).strip()
+                if not timestamp:
+                    raise ValueError("签到服务器未返回 timestamp")
                 
-                # 参照 Rust 版本：POST 请求，参数放在 query string
+                # iClass 要求课程与时间在 query，用户 id 在表单体。
                 res = self.session.post(
                     sign_url,
                     params={
-                        "id": self.userId,
                         "courseSchedId": cid,
                         "timestamp": timestamp,
                     },
+                    data={"id": self.userId},
                     headers={"sessionId": self.sessionId},
                     timeout=10,
                     verify=False,
